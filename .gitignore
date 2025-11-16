@@ -1,0 +1,26 @@
+# Python キャッシュ/ビルド
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.dist-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 仮想環境
+.venv/
+venv/
+venv-local-api/
+
+# IDE / OS
+.DS_Store
+.vscode/
+.idea/
+
+# ローカル生成物
+logs/
+data/
+model/
