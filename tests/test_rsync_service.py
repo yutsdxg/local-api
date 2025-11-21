@@ -22,18 +22,52 @@ class TestSyncDirectories(unittest.TestCase):
             (src / "alpha").mkdir()
 
             called_commands: list[list[str]] = []
+            outputs: list[str] = []
 
-            def fake_run(cmd: list[str], check: bool) -> None:
+            stdout = "\n".join(
+                [
+                    "sending incremental file list",
+                    ">f++++++ some/newfile.txt",
+                    ">f.st... modified/file1.txt",
+                    "*deleting   old/removed_file.txt",
+                    "",
+                    "sent 123 bytes  received 456 bytes  789.00 bytes/sec",
+                    "total size is 1,234  speedup is 2.00",
+                ]
+            )
+
+            def fake_run(cmd: list[str], check: bool, capture_output: bool, text: bool):
                 called_commands.append(cmd)
+                return subprocess.CompletedProcess(cmd, 0, stdout=stdout)
 
             with mock.patch.object(rsync.subprocess, "run", side_effect=fake_run):
                 synced = rsync.sync_directories(src, dst, rsync_bin="rsync")
 
-            self.assertEqual(["alpha", "bravo"], synced)
             self.assertEqual(
                 [
-                    ["rsync", "-av", "--delete", f"{src / 'alpha'}/", f"{dst / 'alpha'}/"],
-                    ["rsync", "-av", "--delete", f"{src / 'bravo'}/", f"{dst / 'bravo'}/"],
+                    {
+                        "name": "alpha",
+                        "changes": [
+                            ">f++++++ some/newfile.txt",
+                            ">f.st... modified/file1.txt",
+                            "*deleting   old/removed_file.txt",
+                        ],
+                    },
+                    {
+                        "name": "bravo",
+                        "changes": [
+                            ">f++++++ some/newfile.txt",
+                            ">f.st... modified/file1.txt",
+                            "*deleting   old/removed_file.txt",
+                        ],
+                    },
+                ],
+                synced,
+            )
+            self.assertEqual(
+                [
+                    ["rsync", "-aiv", "--delete", f"{src / 'alpha'}/", f"{dst / 'alpha'}/"],
+                    ["rsync", "-aiv", "--delete", f"{src / 'bravo'}/", f"{dst / 'bravo'}/"],
                 ],
                 called_commands,
             )
@@ -63,7 +97,7 @@ class TestSyncDirectories(unittest.TestCase):
 
             (src / "only").mkdir()
 
-            def fake_run(cmd: list[str], check: bool) -> None:
+            def fake_run(cmd: list[str], check: bool, capture_output: bool, text: bool):
                 raise subprocess.CalledProcessError(cmd=cmd, returncode=1)
 
             with mock.patch.object(rsync.subprocess, "run", side_effect=fake_run):

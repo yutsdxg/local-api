@@ -19,11 +19,12 @@ class TestRsyncEndpoint(unittest.TestCase):
             src = base / "src"
             dst = base / "dst"
 
-            with mock.patch.object(main.rsync_service, "sync_directories", return_value=["alpha"]) as mocked_sync:
+            expected = [{"name": "alpha", "changes": [">f.st some/file"]}]
+            with mock.patch.object(main.rsync_service, "sync_directories", return_value=expected) as mocked_sync:
                 result = asyncio.run(main.sync_directories(src=str(src), dst=str(dst)))
 
             mocked_sync.assert_called_once_with(Path(src), Path(dst), main.settings.rsync_bin)
-            self.assertEqual({"synced": ["alpha"]}, result)
+            self.assertEqual({"synced": expected}, result)
 
     def test_rsync_endpoint_returns_400_on_path_error(self) -> None:
         with TemporaryDirectory() as tmpdir:

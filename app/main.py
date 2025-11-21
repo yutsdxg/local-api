@@ -49,7 +49,7 @@ async def download_youtube_audio(
 async def sync_directories(
     src: str = Query(..., description="Source root directory"),
     dst: str = Query(..., description="Destination root directory"),
-) -> dict[str, list[str]]:
+) -> dict[str, list[rsync_service.SyncResult]]:
     """Endpoint that performs rsync per first-level subdirectory."""
 
     try:

@@ -62,12 +62,20 @@ curl -X POST "http://localhost:5050/yt-dlp/audio?video_id=oCVLb374gQ0"
 
 - URL: `POST /rsync`
 - Query: `src`（同期元の親ディレクトリ）, `dst`（同期先の親ディレクトリ）
-- 挙動: `src` 直下の *ディレクトリのみ* を列挙し、各ディレクトリに対して `rsync -av --delete <src>/<name>/ <dst>/<name>/` を実行します。戻り値は同期したディレクトリ名の配列です。
+- 挙動: `src` 直下の *ディレクトリのみ* を列挙し、各ディレクトリに対して `rsync -aiv --delete <src>/<name>/ <dst>/<name>/` を実行します。戻り値は同期したディレクトリ名と `rsync -i` の出力行を含む配列です。
 
 例:
 
 ```bash
 curl -X POST "http://localhost:5050/rsync?src=/path/to/source&dst=/path/to/dest"
+```
+
+パスにスペースが含まれる場合は URL エンコードしてください。curlなら`--data-urlencode`が便利です:
+
+```bash
+curl -X POST "http://localhost:5050/rsync" --get \
+  --data-urlencode "src=/Users/yuts/Data/Sound Library/Ableton/User Library/Samples/Samplepacks" \
+  --data-urlencode "dst=/Volumes/Backup/Samples/Samplepacks"
 ```
 
 ## 環境変数
