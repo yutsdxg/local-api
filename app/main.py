@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 
 from app.config import Settings
+from app.services import rsync as rsync_service
 from app.services import whisper as whisper_service
 from app.services import ytdlp as ytdlp_service
 
@@ -40,3 +43,20 @@ async def download_youtube_audio(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return {"path": str(output_path), "url": youtube_url}
+
+
+@app.post("/rsync")
+async def sync_directories(
+    src: str = Query(..., description="Source root directory"),
+    dst: str = Query(..., description="Destination root directory"),
+) -> dict[str, list[rsync_service.SyncResult]]:
+    """Endpoint that performs rsync per first-level subdirectory."""
+
+    try:
+        synced = rsync_service.sync_directories(Path(src), Path(dst), settings.rsync_bin)
+    except rsync_service.RsyncPathError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except rsync_service.RsyncExecutionError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return {"synced": synced}

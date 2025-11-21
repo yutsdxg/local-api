@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     whisper_tmp_dir: Path
     ytdlp_bin: str
     ytdlp_output_dir: Path
+    rsync_bin: str
 
     @classmethod
     def load(cls) -> "Settings":
@@ -38,6 +39,7 @@ class Settings(BaseSettings):
             whisper_tmp_dir=Path(cls._env("WHISPER_TMP_DIR", "data/tmp/whisper")),
             ytdlp_bin=cls._env("YTDLP_BIN", "yt-dlp"),
             ytdlp_output_dir=Path(cls._env("YTDLP_OUTPUT_DIR", "data/tmp/yt-dlp")),
+            rsync_bin=cls._env("RSYNC_BIN", "rsync"),
         )
 
 
