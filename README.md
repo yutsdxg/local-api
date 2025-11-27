@@ -21,7 +21,7 @@ Whisper 文字起こしと yt-dlp 音声抽出をローカルで扱うための 
 ```bash
 python -m venv venv
 source venv/bin/activate
-pip install fastapi uvicorn python-multipart
+pip install -r requirements.txt
 ```
 
 ## 起動方法
