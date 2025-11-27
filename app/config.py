@@ -30,10 +30,10 @@ class Settings(BaseSettings):
     def load(cls) -> "Settings":
         return cls(
             whisper_bin=cls._env(
-                "WHISPER_BIN", "/opt/homebrew/Cellar/whisper-cpp/1.8.2/bin/whisper-cli"
+                "WHISPER_BIN", "/Users/yuts/Data/Dev/whisper.cpp/build/bin/whisper-cli"
             ),
             whisper_model_path=cls._env(
-                "WHISPER_MODEL_PATH", "model/ggml-medium.bin"
+                "WHISPER_MODEL_PATH", "/Users/yuts/Data/Dev/whisper.cpp/models/ggml-medium.bin"
             ),
             ffmpeg_bin=cls._env("FFMPEG_BIN", "ffmpeg"),
             whisper_tmp_dir=Path(cls._env("WHISPER_TMP_DIR", "data/tmp/whisper")),
