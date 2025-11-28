@@ -1,10 +1,10 @@
 # Local Utility API
 
-Whisper 文字起こしと yt-dlp 音声抽出をローカルで扱うための FastAPI サーバーです。n8n 等から HTTP 経由で利用できます。
+Whisper 文字起こし・yt-dlp 音声抽出・コード/メロディ判定をローカルで扱うための FastAPI サーバーです。n8n 等から HTTP 経由で利用できます。
 
 ## 前提条件
 
-- Python 3.11
+- Python 3.10
 - `whisper-cli`（例: `brew install whisper-cpp`）
 - `ffmpeg`
 - `yt-dlp`
@@ -12,7 +12,7 @@ Whisper 文字起こしと yt-dlp 音声抽出をローカルで扱うための 
 
 ## 事前準備
 
-- 一時/出力ディレクトリを作成: `mkdir -p data/tmp/whisper data/tmp/yt-dlp logs`
+- 一時/出力ディレクトリを作成: `mkdir -p data/tmp/whisper data/tmp/yt-dlp data/chord-melody/input data/chord-melody/logs logs`
 - Whisper 用モデルを `model/` 配下に配置（例: `model/ggml-medium.bin`）。
 - パスを変えたい場合は環境変数で上書きします（`## 環境変数` を参照）。
 
@@ -78,6 +78,16 @@ curl -X POST "http://localhost:5050/rsync" --get \
   --data-urlencode "dst=/Volumes/Backup/Samples/Samplepacks"
 ```
 
+### 4. コード/メロディ判定（AnalyzeChordMelody 移植）
+
+- URL: `POST /audio/analyze/chord-melody`
+- パラメータ: なし（設定されたディレクトリ配下の `.wav` を走査）
+- 挙動:
+  - `data/chord-melody/input` 配下の `_MLD` / `_CHP` / `_CH1` で終わる `.wav` を再帰的に対象化
+  - BasicPitch でCHORD/MELODY/CHORD1を判定し、結果に応じてファイル名末尾をリネーム
+  - ログは `data/chord-melody/logs/analysis.log` に出力（`<相対パス>\t<判定結果>`）
+- レスポンス: 判定結果のみを返す `{"results": [{"path": "...", "result": "CHORD|MELODY|CHORD1"}, ...]}`
+
 ## 環境変数
 
 `LOCAL_API_` プレフィックス付きで設定を上書きできます。
@@ -91,6 +101,12 @@ curl -X POST "http://localhost:5050/rsync" --get \
 | `LOCAL_API_YTDLP_BIN` | `yt-dlp` | yt-dlp コマンド |
 | `LOCAL_API_YTDLP_OUTPUT_DIR` | `data/yt-dlp` | yt-dlp 出力先 |
 | `LOCAL_API_RSYNC_BIN` | `rsync` | rsync コマンド |
+| `LOCAL_API_CHORD_MELODY_INPUT_DIR` | `data/chord-melody/input` | 判定対象ディレクトリ |
+| `LOCAL_API_CHORD_MELODY_LOG_DIR` | `data/chord-melody/logs` | 解析ログ出力先 |
+| `LOCAL_API_CHORD_MELODY_TIME_UNIT` | `0.1` | 分析時間スライス（秒） |
+| `LOCAL_API_CHORD_MELODY_POLY_THRESHOLD` | `0.4` | POLY率によるCHORD判定閾値 |
+| `LOCAL_API_CHORD_MELODY_POLY_NOTE_COUNT` | `3` | POLY判定とする音数 |
+| `LOCAL_API_CHORD_MELODY_STABILITY_THRESHOLD` | `0.7` | CHORD1判定用の最低音安定性閾値 |
 
 ## n8n からの利用メモ
 

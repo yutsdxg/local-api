@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 
 from app.config import Settings
+from app.services import chord_melody as chord_melody_service
 from app.services import rsync as rsync_service
 from app.services import whisper as whisper_service
 from app.services import ytdlp as ytdlp_service
@@ -60,3 +61,17 @@ async def sync_directories(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return {"synced": synced}
+
+
+@app.post("/audio/analyze/chord-melody")
+async def analyze_chord_melody() -> dict[str, list[dict[str, str]]]:
+    """Analyze chord/melody classification for .wav files and rename them."""
+
+    try:
+        results = chord_melody_service.analyze_chord_melody(settings)
+    except chord_melody_service.ChordMelodyPathError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except chord_melody_service.ChordMelodyExecutionError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return {"results": results}
