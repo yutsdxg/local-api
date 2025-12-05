@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     ytdlp_bin: str
     ytdlp_output_dir: Path
     rsync_bin: str
+    chord_melody_input_dir: Path
+    chord_melody_log_dir: Path
+    chord_melody_time_unit: float
+    chord_melody_poly_threshold: float
+    chord_melody_poly_note_count: int
+    chord_melody_stability_threshold: float
 
     @classmethod
     def load(cls) -> "Settings":
@@ -40,6 +46,12 @@ class Settings(BaseSettings):
             ytdlp_bin=cls._env("YTDLP_BIN", "yt-dlp"),
             ytdlp_output_dir=Path(cls._env("YTDLP_OUTPUT_DIR", "data/tmp/yt-dlp")),
             rsync_bin=cls._env("RSYNC_BIN", "rsync"),
+            chord_melody_input_dir=Path(cls._env("CHORD_MELODY_INPUT_DIR", "data/chord-melody/input")),
+            chord_melody_log_dir=Path(cls._env("CHORD_MELODY_LOG_DIR", "data/chord-melody/logs")),
+            chord_melody_time_unit=float(cls._env("CHORD_MELODY_TIME_UNIT", "0.1")),
+            chord_melody_poly_threshold=float(cls._env("CHORD_MELODY_POLY_THRESHOLD", "0.4")),
+            chord_melody_poly_note_count=int(cls._env("CHORD_MELODY_POLY_NOTE_COUNT", "3")),
+            chord_melody_stability_threshold=float(cls._env("CHORD_MELODY_STABILITY_THRESHOLD", "0.7")),
         )
 
 
