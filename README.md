@@ -88,6 +88,39 @@ curl -X POST "http://localhost:5050/rsync" --get \
   - ログは `data/chord-melody/logs/analysis.log` に出力（`<相対パス>\t<判定結果>`）
 - レスポンス: 判定結果のみを返す `{"results": [{"path": "...", "result": "CHORD|MELODY|CHORD1"}, ...]}`
 
+例:
+
+```bash
+curl -X POST "http://localhost:5050/audio/analyze/chord-melody"
+```
+
+### 5. similar-tones（類似音色検索）
+
+- URL: `POST /audio/similar-tones/index`
+- Query: `preset_dir`（プリセット音源のディレクトリ）, `output_path`（インデックス出力パス）
+- 挙動: `.wav` / `.ogg` を再帰的に探索し、CLAP埋め込みでインデックスを作成
+
+例:
+
+```bash
+curl -X POST "http://localhost:5050/audio/similar-tones/index" --get \
+  --data-urlencode "preset_dir=/Users/yuts/Data/Sound Library/Ableton/User Library/Presets/Instruments/Third Party/Omnisphere/Factory/Atmosphere Library/Bells & Vibes" \
+  --data-urlencode "output_path=data/similar-tones/index/omnisphere_atmosphere.pkl"
+```
+
+- URL: `POST /audio/similar-tones/search`
+- Query: `target_path`（対象音源ファイル）, `index_path`（インデックスファイル）, `top_k`（取得件数）
+- レスポンス: `text`（1行1結果のランキング表）と `results`（詳細配列）
+
+例:
+
+```bash
+curl -X POST "http://localhost:5050/audio/similar-tones/search" --get \
+  --data-urlencode "target_path=/Users/yuts/Data/Sound Library/Ableton/User Library/Samples/Samplepacks/Native Instruments - Warped Symmetry/Samples/One Shots/Synth Note/Bell_D#_Obsidian.wav" \
+  --data-urlencode "index_path=data/similar-tones/index/omnisphere_atmosphere.pkl" \
+  --data-urlencode "top_k=10" | jq -r '.text'
+```
+
 ## 環境変数
 
 `LOCAL_API_` プレフィックス付きで設定を上書きできます。
@@ -107,6 +140,8 @@ curl -X POST "http://localhost:5050/rsync" --get \
 | `LOCAL_API_CHORD_MELODY_POLY_THRESHOLD` | `0.4` | POLY率によるCHORD判定閾値 |
 | `LOCAL_API_CHORD_MELODY_POLY_NOTE_COUNT` | `3` | POLY判定とする音数 |
 | `LOCAL_API_CHORD_MELODY_STABILITY_THRESHOLD` | `0.7` | CHORD1判定用の最低音安定性閾値 |
+| `LOCAL_API_SIMILAR_TONES_CACHE_DIR` | `data/similar-tones/cache` | Hugging Faceモデル/キャッシュ保存先 |
+| `LOCAL_API_SIMILAR_TONES_DEVICE` | `cpu` | CLAP実行デバイス（将来のMPS対応用） |
 
 ## n8n からの利用メモ
 

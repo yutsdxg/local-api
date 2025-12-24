@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     chord_melody_poly_threshold: float
     chord_melody_poly_note_count: int
     chord_melody_stability_threshold: float
+    similar_tones_cache_dir: Path
+    similar_tones_device: str
 
     @classmethod
     def load(cls) -> "Settings":
@@ -52,6 +54,8 @@ class Settings(BaseSettings):
             chord_melody_poly_threshold=float(cls._env("CHORD_MELODY_POLY_THRESHOLD", "0.4")),
             chord_melody_poly_note_count=int(cls._env("CHORD_MELODY_POLY_NOTE_COUNT", "3")),
             chord_melody_stability_threshold=float(cls._env("CHORD_MELODY_STABILITY_THRESHOLD", "0.7")),
+            similar_tones_cache_dir=Path(cls._env("SIMILAR_TONES_CACHE_DIR", "data/similar-tones/cache")),
+            similar_tones_device=cls._env("SIMILAR_TONES_DEVICE", "cpu"),
         )
 
 
