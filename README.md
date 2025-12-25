@@ -117,7 +117,7 @@ curl -X POST "http://localhost:5050/audio/similar-tones/index" --get \
 ```bash
 curl -X POST "http://localhost:5050/audio/similar-tones/search" --get \
   --data-urlencode "target_path=/Users/yuts/Data/Sound Library/Ableton/User Library/Samples/Samplepacks/Native Instruments - Warped Symmetry/Samples/One Shots/Synth Note/Bell_D#_Obsidian.wav" \
-  --data-urlencode "index_path=data/similar-tones/index/omnisphere_atmosphere.pkl" \
+  --data-urlencode "index_path=data/similar-tones/index/preset.pkl" \
   --data-urlencode "top_k=10" | jq -r '.text'
 ```
 

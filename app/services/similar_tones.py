@@ -41,10 +41,10 @@ def create_index(settings: Settings, preset_dir: Path, output_path: Path) -> dic
 
 
 def search_similar(
-    settings: Settings, target_path: Path, index_path: Path, top_k: int
+    settings: Settings, target_path: Path, index_paths: list[Path], top_k: int
 ) -> dict[str, Any]:
     _ensure_file(target_path, "Target audio file not found")
-    _ensure_file(index_path, "Index file not found")
+    _ensure_files(index_paths, "Index file not found")
     if top_k < 1:
         raise SimilarTonesPathError("top_k must be at least 1")
 
@@ -52,7 +52,7 @@ def search_similar(
 
     try:
         service = SearchService(settings)
-        results = service.find_similar(target_path, index_path, top_k=top_k)
+        results = service.find_similar(target_path, index_paths, top_k=top_k)
         formatter = ResultFormatter()
         text = formatter.to_ranked_table(results)
     except Exception as exc:  # noqa: BLE001
@@ -81,13 +81,159 @@ def _ensure_file(path: Path, message: str) -> None:
         raise SimilarTonesPathError(f"{message}: {path}")
 
 
+def _ensure_files(paths: list[Path], message: str) -> None:
+    if not paths:
+        raise SimilarTonesPathError(message)
+    for path in paths:
+        _ensure_file(path, message)
+
+
+class MultiSegmentSelector:
+    def __init__(
+        self,
+        segment_seconds: float,
+        sample_rate: int,
+        rms_window_seconds: float,
+        target_db_offset: float,
+    ) -> None:
+        self.segment_seconds = segment_seconds
+        self.sample_rate = sample_rate
+        self.rms_window_seconds = rms_window_seconds
+        self.target_db_offset = target_db_offset
+
+    def extract_segments(self, audio_data: np.ndarray) -> list[np.ndarray]:
+        segment_samples = int(round(self.segment_seconds * self.sample_rate))
+        if segment_samples <= 0:
+            return [audio_data]
+        if len(audio_data) <= segment_samples:
+            return [audio_data]
+
+        peak_index = int(np.argmax(np.abs(audio_data)))
+        peak_segment = self._slice_centered(audio_data, peak_index, segment_samples)
+
+        peak_amp = float(np.max(np.abs(audio_data)))
+        if peak_amp <= 0.0:
+            return [peak_segment]
+
+        target_segment = self._extract_target_db_segment(audio_data, segment_samples)
+        if target_segment is None:
+            return [peak_segment]
+        return [peak_segment, target_segment]
+
+    def _extract_target_db_segment(
+        self, audio_data: np.ndarray, segment_samples: int
+    ) -> Optional[np.ndarray]:
+        peak_amp = float(np.max(np.abs(audio_data)))
+        if peak_amp <= 0.0:
+            return None
+
+        window_samples = int(round(self.rms_window_seconds * self.sample_rate))
+        if window_samples <= 0 or len(audio_data) < window_samples:
+            return None
+
+        target_db = 20 * np.log10(peak_amp) - self.target_db_offset
+        best_index = None
+        best_distance = float("inf")
+        epsilon = 1e-12
+
+        for start in range(0, len(audio_data) - window_samples + 1, window_samples):
+            window = audio_data[start : start + window_samples]
+            rms = float(np.sqrt(np.mean(window * window)))
+            rms_db = 20 * np.log10(max(rms, epsilon))
+            distance = abs(rms_db - target_db)
+            if distance < best_distance:
+                best_distance = distance
+                best_index = start + window_samples // 2
+
+        if best_index is None:
+            return None
+
+        return self._slice_centered(audio_data, best_index, segment_samples)
+
+    def _slice_centered(
+        self, audio_data: np.ndarray, center_index: int, segment_samples: int
+    ) -> np.ndarray:
+        half_window = segment_samples // 2
+        start = center_index - half_window
+        start = max(0, min(start, len(audio_data) - segment_samples))
+        end = start + segment_samples
+        return audio_data[start:end]
+
+
+def _update_max_scores(
+    file_paths: list[str],
+    similarities: np.ndarray,
+    scores_by_path: dict[str, float],
+) -> None:
+    for file_path, score in zip(file_paths, similarities):
+        current = scores_by_path.get(file_path)
+        if current is None or score > current:
+            scores_by_path[file_path] = float(score)
+
+
+def _combine_weighted_scores(
+    scores_by_segment: list[dict[str, float]],
+    weights: list[float],
+) -> dict[str, float]:
+    combined: dict[str, float] = {}
+    if not scores_by_segment:
+        return combined
+
+    weight_total = sum(weights) if weights else 0.0
+    if weight_total <= 0.0:
+        return combined
+
+    normalized_weights = [weight / weight_total for weight in weights]
+
+    for idx, segment_scores in enumerate(scores_by_segment):
+        weight = normalized_weights[idx]
+        for file_path, score in segment_scores.items():
+            combined[file_path] = combined.get(file_path, 0.0) + score * weight
+
+    return combined
+
+
+def _load_combined_index(
+    index_paths: list[Path], vector_store: "VectorStore"
+) -> tuple[np.ndarray, list[str]]:
+    combined_vectors: list[np.ndarray] = []
+    combined_paths: list[str] = []
+    expected_dimension: Optional[int] = None
+
+    for index_path in index_paths:
+        vectors, file_paths = vector_store.load_index(index_path)
+        if vectors.ndim == 1:
+            vectors = vectors.reshape(1, -1)
+        if expected_dimension is None:
+            expected_dimension = vectors.shape[1]
+        elif vectors.shape[1] != expected_dimension:
+            raise SimilarTonesExecutionError(
+                "Index vectors must share the same embedding dimension"
+            )
+        combined_vectors.append(vectors)
+        combined_paths.extend(file_paths)
+
+    if not combined_vectors:
+        raise SimilarTonesExecutionError("No vectors loaded from index files")
+
+    return np.concatenate(combined_vectors, axis=0), combined_paths
+
+
 class AudioLoader:
     TARGET_SAMPLE_RATE = 48000
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        segment_seconds: float,
+        rms_window_seconds: float,
+        target_db_offset: float,
+    ) -> None:
+        self.segment_selector = MultiSegmentSelector(
+            segment_seconds, self.TARGET_SAMPLE_RATE, rms_window_seconds, target_db_offset
+        )
         logger.info("AudioLoader initialized")
 
-    def load(self, file_path: Path) -> np.ndarray:
+    def load(self, file_path: Path) -> list[np.ndarray]:
         if not file_path.exists():
             raise SimilarTonesPathError(f"Audio file not found: {file_path}")
 
@@ -106,7 +252,8 @@ class AudioLoader:
                 f"Unsupported file format: {file_extension}. Supported: .wav, .ogg"
             )
 
-        return self._convert_to_clap_format(audio_data, sample_rate)
+        audio_data = self._convert_to_clap_format(audio_data, sample_rate)
+        return self.segment_selector.extract_segments(audio_data)
 
     def _convert_to_clap_format(self, audio_data: np.ndarray, sample_rate: int) -> np.ndarray:
         if len(audio_data.shape) > 1 and audio_data.shape[1] > 1:
@@ -167,7 +314,7 @@ class ClapModel:
 
         try:
             inputs = self.processor(
-                audios=audio_data,
+                audio=audio_data,
                 sampling_rate=48000,
                 return_tensors="pt",
             )
@@ -240,26 +387,12 @@ class VectorStore:
         file_paths: list[str],
         top_k: int = 10,
     ) -> list[dict[str, Any]]:
-        if len(index_vectors) != len(file_paths):
-            raise SimilarTonesExecutionError("Index vectors count must match file paths count")
-        if len(index_vectors) == 0:
+        valid_file_paths, similarities = self._compute_similarities(
+            query_vector, index_vectors, file_paths
+        )
+        if len(valid_file_paths) == 0:
             return []
 
-        query_norm = np.linalg.norm(query_vector)
-        if query_norm == 0:
-            raise SimilarTonesExecutionError("Query vector cannot be zero vector")
-
-        query_normalized = query_vector / query_norm
-        index_norms = np.linalg.norm(index_vectors, axis=1)
-        valid_indices = index_norms > 0
-        if not np.any(valid_indices):
-            return []
-
-        valid_vectors = index_vectors[valid_indices]
-        valid_file_paths = [file_paths[i] for i in range(len(file_paths)) if valid_indices[i]]
-        valid_norms = index_norms[valid_indices]
-        index_normalized = valid_vectors / valid_norms[:, np.newaxis]
-        similarities = np.dot(index_normalized, query_normalized)
         sorted_indices = np.argsort(similarities)[::-1]
         top_k = min(top_k, len(sorted_indices))
 
@@ -274,6 +407,34 @@ class VectorStore:
                 }
             )
         return results
+
+    def _compute_similarities(
+        self,
+        query_vector: np.ndarray,
+        index_vectors: np.ndarray,
+        file_paths: list[str],
+    ) -> tuple[list[str], np.ndarray]:
+        if len(index_vectors) != len(file_paths):
+            raise SimilarTonesExecutionError("Index vectors count must match file paths count")
+        if len(index_vectors) == 0:
+            return [], np.array([])
+
+        query_norm = np.linalg.norm(query_vector)
+        if query_norm == 0:
+            raise SimilarTonesExecutionError("Query vector cannot be zero vector")
+
+        query_normalized = query_vector / query_norm
+        index_norms = np.linalg.norm(index_vectors, axis=1)
+        valid_indices = index_norms > 0
+        if not np.any(valid_indices):
+            return [], np.array([])
+
+        valid_vectors = index_vectors[valid_indices]
+        valid_file_paths = [file_paths[i] for i in range(len(file_paths)) if valid_indices[i]]
+        valid_norms = index_norms[valid_indices]
+        index_normalized = valid_vectors / valid_norms[:, np.newaxis]
+        similarities = np.dot(index_normalized, query_normalized)
+        return valid_file_paths, similarities
 
 
 class ResultFormatter:
@@ -295,9 +456,20 @@ class ResultFormatter:
 
 class SearchService:
     def __init__(self, settings: Settings) -> None:
-        self.audio_loader = AudioLoader()
+        self.settings = settings
+        self.audio_loader = AudioLoader(
+            segment_seconds=settings.similar_tones_segment_seconds,
+            rms_window_seconds=settings.similar_tones_rms_window_seconds,
+            target_db_offset=settings.similar_tones_target_db_offset,
+        )
         self.embedding_model = ClapModel(device=settings.similar_tones_device)
         self.vector_store = VectorStore()
+
+    def _embed_segments(self, audio_segments: list[np.ndarray]) -> list[np.ndarray]:
+        if not audio_segments:
+            raise SimilarTonesExecutionError("No audio segments available for embedding")
+
+        return [self.embedding_model.get_embedding(segment) for segment in audio_segments]
 
     def create_index(self, preset_dir: Path, output_path: Path) -> dict[str, Any]:
         audio_files = self._find_audio_files(preset_dir)
@@ -307,13 +479,17 @@ class SearchService:
         embeddings = []
         file_paths = []
         skipped = 0
+        indexed_files = 0
 
         for audio_file in audio_files:
             try:
-                audio_data = self.audio_loader.load(audio_file)
-                embedding = self.embedding_model.get_embedding(audio_data)
-                embeddings.append(embedding)
-                file_paths.append(str(audio_file))
+                audio_segments = self.audio_loader.load(audio_file)
+                segment_embeddings = self._embed_segments(audio_segments)
+                if not segment_embeddings:
+                    raise SimilarTonesExecutionError("No embeddings generated for audio segments")
+                embeddings.extend(segment_embeddings)
+                file_paths.extend([str(audio_file)] * len(segment_embeddings))
+                indexed_files += 1
             except Exception:  # noqa: BLE001
                 skipped += 1
                 logger.warning("Skipping file due to processing error: %s", audio_file)
@@ -326,19 +502,49 @@ class SearchService:
 
         return {
             "index_path": str(output_path),
-            "indexed_count": len(embeddings_array),
+            "indexed_count": indexed_files,
             "skipped_count": skipped,
         }
 
     def find_similar(
-        self, target_path: Path, index_path: Path, top_k: int = 10
+        self, target_path: Path, index_paths: list[Path], top_k: int = 10
     ) -> list[dict[str, Any]]:
-        vectors, file_paths = self.vector_store.load_index(index_path)
-        target_audio = self.audio_loader.load(target_path)
-        target_embedding = self.embedding_model.get_embedding(target_audio)
-        search_results = self.vector_store.search(
-            target_embedding, vectors, file_paths, top_k=top_k
-        )
+        vectors, file_paths = _load_combined_index(index_paths, self.vector_store)
+        target_segments = self.audio_loader.load(target_path)
+        target_embeddings = self._embed_segments(target_segments)
+
+        scores_by_segment: list[dict[str, float]] = []
+        for embedding in target_embeddings:
+            scores_by_path: dict[str, float] = {}
+            valid_paths, similarities = self.vector_store._compute_similarities(
+                embedding, vectors, file_paths
+            )
+            _update_max_scores(valid_paths, similarities, scores_by_path)
+            scores_by_segment.append(scores_by_path)
+
+        if not scores_by_segment:
+            return []
+
+        if len(scores_by_segment) == 1:
+            combined_scores = scores_by_segment[0]
+        else:
+            weights = [self._peak_weight(), self._target_weight()]
+            combined_scores = _combine_weighted_scores(scores_by_segment[:2], weights)
+
+        if not combined_scores:
+            return []
+
+        sorted_items = sorted(combined_scores.items(), key=lambda item: item[1], reverse=True)
+        limited_items = sorted_items[:top_k]
+        search_results = []
+        for rank, (file_path, score) in enumerate(limited_items, start=1):
+            search_results.append(
+                {
+                    "file_path": file_path,
+                    "similarity_score": score,
+                    "rank": rank,
+                }
+            )
 
         formatted_results = []
         for result in search_results:
@@ -352,6 +558,12 @@ class SearchService:
                 }
             )
         return formatted_results
+
+    def _peak_weight(self) -> float:
+        return float(self.settings.similar_tones_peak_weight)
+
+    def _target_weight(self) -> float:
+        return float(self.settings.similar_tones_target_weight)
 
     def _find_audio_files(self, directory: Path) -> list[Path]:
         supported_extensions = [".wav", ".ogg"]

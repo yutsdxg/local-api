@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     chord_melody_stability_threshold: float
     similar_tones_cache_dir: Path
     similar_tones_device: str
+    similar_tones_segment_seconds: float
+    similar_tones_rms_window_seconds: float
+    similar_tones_target_db_offset: float
+    similar_tones_peak_weight: float
+    similar_tones_target_weight: float
 
     @classmethod
     def load(cls) -> "Settings":
@@ -56,6 +61,15 @@ class Settings(BaseSettings):
             chord_melody_stability_threshold=float(cls._env("CHORD_MELODY_STABILITY_THRESHOLD", "0.7")),
             similar_tones_cache_dir=Path(cls._env("SIMILAR_TONES_CACHE_DIR", "data/similar-tones/cache")),
             similar_tones_device=cls._env("SIMILAR_TONES_DEVICE", "cpu"),
+            similar_tones_segment_seconds=float(cls._env("SIMILAR_TONES_SEGMENT_SECONDS", "0.2")),
+            similar_tones_rms_window_seconds=float(
+                cls._env("SIMILAR_TONES_RMS_WINDOW_SECONDS", "0.02")
+            ),
+            similar_tones_target_db_offset=float(
+                cls._env("SIMILAR_TONES_TARGET_DB_OFFSET", "14.0")
+            ),
+            similar_tones_peak_weight=float(cls._env("SIMILAR_TONES_PEAK_WEIGHT", "0.7")),
+            similar_tones_target_weight=float(cls._env("SIMILAR_TONES_TARGET_WEIGHT", "0.3")),
         )
 
 

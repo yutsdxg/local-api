@@ -72,7 +72,7 @@ class TestSimilarTonesEndpoint(unittest.TestCase):
                 )
 
             mocked_search.assert_called_once_with(
-                main.settings, target_path, index_path, 3
+                main.settings, target_path, [index_path], 3
             )
             self.assertEqual(expected, result)
 
