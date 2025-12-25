@@ -100,14 +100,15 @@ async def create_similar_tones_index(
 @app.post("/audio/similar-tones/search")
 async def search_similar_tones(
     target_path: str = Query(..., description="Target audio file path"),
-    index_path: str = Query(..., description="Index file path"),
+    index_path: str = Query(..., description="Index file path(s), comma-separated"),
     top_k: int = Query(10, ge=1, description="Number of similar presets to return"),
 ) -> dict[str, object]:
     """Search for similar preset tones based on a target audio file."""
 
     try:
+        index_paths = [Path(path.strip()) for path in index_path.split(",") if path.strip()]
         response = similar_tones_service.search_similar(
-            settings, Path(target_path), Path(index_path), top_k
+            settings, Path(target_path), index_paths, top_k
         )
     except similar_tones_service.SimilarTonesPathError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
