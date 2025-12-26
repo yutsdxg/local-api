@@ -61,9 +61,9 @@ class Settings(BaseSettings):
             chord_melody_stability_threshold=float(cls._env("CHORD_MELODY_STABILITY_THRESHOLD", "0.7")),
             similar_tones_cache_dir=Path(cls._env("SIMILAR_TONES_CACHE_DIR", "data/similar-tones/cache")),
             similar_tones_device=cls._env("SIMILAR_TONES_DEVICE", "cpu"),
-            similar_tones_segment_seconds=float(cls._env("SIMILAR_TONES_SEGMENT_SECONDS", "0.2")),
+            similar_tones_segment_seconds=float(cls._env("SIMILAR_TONES_SEGMENT_SECONDS", "0.4")),
             similar_tones_rms_window_seconds=float(
-                cls._env("SIMILAR_TONES_RMS_WINDOW_SECONDS", "0.02")
+                cls._env("SIMILAR_TONES_RMS_WINDOW_SECONDS", "0.05")
             ),
             similar_tones_target_db_offset=float(
                 cls._env("SIMILAR_TONES_TARGET_DB_OFFSET", "14.0")

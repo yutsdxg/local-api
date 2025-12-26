@@ -104,8 +104,8 @@ curl -X POST "http://localhost:5050/audio/analyze/chord-melody"
 
 ```bash
 curl -X POST "http://localhost:5050/audio/similar-tones/index" --get \
-  --data-urlencode "preset_dir=/Users/yuts/Data/Sound Library/Ableton/User Library/Presets/Instruments/Third Party/Omnisphere/Factory/Atmosphere Library/Bells & Vibes" \
-  --data-urlencode "output_path=data/similar-tones/index/omnisphere_atmosphere.pkl"
+  --data-urlencode "preset_dir=/Users/yuts/Data/Sound Library/Ableton/User Library/Samples/Preview/Factory Packs" \
+  --data-urlencode "output_path=data/similar-tones/index/ableton_factory_packs_200ms.pkl"
 ```
 
 - URL: `POST /audio/similar-tones/search`
