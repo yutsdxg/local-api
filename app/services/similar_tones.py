@@ -171,11 +171,29 @@ def _update_max_scores(
             scores_by_path[file_path] = float(score)
 
 
+def _update_max_scores_with_source(
+    file_paths: list[str],
+    source_index_paths: list[str],
+    similarities: np.ndarray,
+    scores_by_path: dict[str, dict[str, Any]],
+) -> None:
+    for file_path, source_index_path, score in zip(
+        file_paths, source_index_paths, similarities
+    ):
+        current = scores_by_path.get(file_path)
+        score_value = float(score)
+        if current is None or score_value > current["score"]:
+            scores_by_path[file_path] = {
+                "score": score_value,
+                "index_path": source_index_path,
+            }
+
+
 def _combine_weighted_scores(
-    scores_by_segment: list[dict[str, float]],
+    scores_by_segment: list[dict[str, dict[str, Any]]],
     weights: list[float],
-) -> dict[str, float]:
-    combined: dict[str, float] = {}
+) -> dict[str, dict[str, Any]]:
+    combined: dict[str, dict[str, Any]] = {}
     if not scores_by_segment:
         return combined
 
@@ -187,17 +205,33 @@ def _combine_weighted_scores(
 
     for idx, segment_scores in enumerate(scores_by_segment):
         weight = normalized_weights[idx]
-        for file_path, score in segment_scores.items():
-            combined[file_path] = combined.get(file_path, 0.0) + score * weight
+        for file_path, info in segment_scores.items():
+            weighted_score = info["score"] * weight
+            existing = combined.get(file_path)
+            if existing is None:
+                combined[file_path] = {
+                    "score": weighted_score,
+                    "index_path": info.get("index_path"),
+                    "max_component": weighted_score,
+                }
+            else:
+                existing["score"] += weighted_score
+                if weighted_score > existing.get("max_component", float("-inf")):
+                    existing["max_component"] = weighted_score
+                    existing["index_path"] = info.get("index_path")
+
+    for info in combined.values():
+        info.pop("max_component", None)
 
     return combined
 
 
 def _load_combined_index(
     index_paths: list[Path], vector_store: "VectorStore"
-) -> tuple[np.ndarray, list[str]]:
+) -> tuple[np.ndarray, list[str], list[str]]:
     combined_vectors: list[np.ndarray] = []
     combined_paths: list[str] = []
+    combined_index_paths: list[str] = []
     expected_dimension: Optional[int] = None
 
     for index_path in index_paths:
@@ -212,11 +246,12 @@ def _load_combined_index(
             )
         combined_vectors.append(vectors)
         combined_paths.extend(file_paths)
+        combined_index_paths.extend([str(index_path)] * len(file_paths))
 
     if not combined_vectors:
         raise SimilarTonesExecutionError("No vectors loaded from index files")
 
-    return np.concatenate(combined_vectors, axis=0), combined_paths
+    return np.concatenate(combined_vectors, axis=0), combined_paths, combined_index_paths
 
 
 class AudioLoader:
@@ -387,7 +422,7 @@ class VectorStore:
         file_paths: list[str],
         top_k: int = 10,
     ) -> list[dict[str, Any]]:
-        valid_file_paths, similarities = self._compute_similarities(
+        valid_file_paths, similarities, _ = self._compute_similarities(
             query_vector, index_vectors, file_paths
         )
         if len(valid_file_paths) == 0:
@@ -413,11 +448,11 @@ class VectorStore:
         query_vector: np.ndarray,
         index_vectors: np.ndarray,
         file_paths: list[str],
-    ) -> tuple[list[str], np.ndarray]:
+    ) -> tuple[list[str], np.ndarray, np.ndarray]:
         if len(index_vectors) != len(file_paths):
             raise SimilarTonesExecutionError("Index vectors count must match file paths count")
         if len(index_vectors) == 0:
-            return [], np.array([])
+            return [], np.array([]), np.array([])
 
         query_norm = np.linalg.norm(query_vector)
         if query_norm == 0:
@@ -427,14 +462,14 @@ class VectorStore:
         index_norms = np.linalg.norm(index_vectors, axis=1)
         valid_indices = index_norms > 0
         if not np.any(valid_indices):
-            return [], np.array([])
+            return [], np.array([]), np.array([])
 
         valid_vectors = index_vectors[valid_indices]
         valid_file_paths = [file_paths[i] for i in range(len(file_paths)) if valid_indices[i]]
         valid_norms = index_norms[valid_indices]
         index_normalized = valid_vectors / valid_norms[:, np.newaxis]
         similarities = np.dot(index_normalized, query_normalized)
-        return valid_file_paths, similarities
+        return valid_file_paths, similarities, np.where(valid_indices)[0]
 
 
 class ResultFormatter:
@@ -443,14 +478,14 @@ class ResultFormatter:
             return "No similar presets found.\n"
 
         lines = []
-        lines.append("Rank  Similarity  File Name  Path")
-        lines.append("----  ----------  ---------  ----")
+        lines.append("Rank  Similarity  Path  Index")
+        lines.append("----  ----------  ----  -----")
         for result in results:
             rank = result["rank"]
             score = result["similarity_score"]
             file_path = result["file_path"]
-            file_name = Path(file_path).name
-            lines.append(f"{rank:>4}  {score:>10.4f}  {file_name}  {file_path}")
+            index_path = result.get("index_path", "-")
+            lines.append(f"{rank:>4}  {score:>10.4f}  {file_path}  {index_path}")
         return "\n".join(lines) + "\n"
 
 
@@ -509,17 +544,20 @@ class SearchService:
     def find_similar(
         self, target_path: Path, index_paths: list[Path], top_k: int = 10
     ) -> list[dict[str, Any]]:
-        vectors, file_paths = _load_combined_index(index_paths, self.vector_store)
+        vectors, file_paths, index_sources = _load_combined_index(
+            index_paths, self.vector_store
+        )
         target_segments = self.audio_loader.load(target_path)
         target_embeddings = self._embed_segments(target_segments)
 
-        scores_by_segment: list[dict[str, float]] = []
+        scores_by_segment: list[dict[str, dict[str, Any]]] = []
         for embedding in target_embeddings:
-            scores_by_path: dict[str, float] = {}
-            valid_paths, similarities = self.vector_store._compute_similarities(
+            scores_by_path: dict[str, dict[str, Any]] = {}
+            valid_paths, similarities, valid_indices = self.vector_store._compute_similarities(
                 embedding, vectors, file_paths
             )
-            _update_max_scores(valid_paths, similarities, scores_by_path)
+            valid_sources = [index_sources[i] for i in valid_indices]
+            _update_max_scores_with_source(valid_paths, valid_sources, similarities, scores_by_path)
             scores_by_segment.append(scores_by_path)
 
         if not scores_by_segment:
@@ -534,15 +572,18 @@ class SearchService:
         if not combined_scores:
             return []
 
-        sorted_items = sorted(combined_scores.items(), key=lambda item: item[1], reverse=True)
+        sorted_items = sorted(
+            combined_scores.items(), key=lambda item: item[1]["score"], reverse=True
+        )
         limited_items = sorted_items[:top_k]
         search_results = []
-        for rank, (file_path, score) in enumerate(limited_items, start=1):
+        for rank, (file_path, info) in enumerate(limited_items, start=1):
             search_results.append(
                 {
                     "file_path": file_path,
-                    "similarity_score": score,
+                    "similarity_score": info["score"],
                     "rank": rank,
+                    "index_path": info.get("index_path"),
                 }
             )
 
@@ -555,6 +596,7 @@ class SearchService:
                     "file_name": file_path.name,
                     "similarity_score": result["similarity_score"],
                     "rank": result["rank"],
+                    "index_path": result.get("index_path"),
                 }
             )
         return formatted_results
