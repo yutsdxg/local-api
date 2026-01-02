@@ -23,10 +23,13 @@ class TestLoadCombinedIndex(unittest.TestCase):
                 np.array([[0.0, 1.0]], dtype=np.float32), ["b.wav"], index_b
             )
 
-            vectors, file_paths = _load_combined_index([index_a, index_b], store)
+            vectors, file_paths, index_paths = _load_combined_index(
+                [index_a, index_b], store
+            )
 
             np.testing.assert_array_equal(
                 np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32),
                 vectors,
             )
             self.assertEqual(["a.wav", "b.wav"], file_paths)
+            self.assertEqual([str(index_a), str(index_b)], index_paths)
