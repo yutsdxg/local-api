@@ -29,6 +29,39 @@ ai_thread:
     - `topic/*` は直下タグごとに1ファイルにまとめる
 - 更新方式: 毎日実行し、全ファイルを洗い替えで再生成する（差分更新はしない）
 
+### obsidian vault内のディレクトリ構成
+```
+- inbox
+    - xxx.md
+    - yyy.md
+- journal
+    - zzz.md
+```
+他のディレクトリは現行無視する
+
+### obsidian vault内のマークダウンファイルのサンプル
+```
+---
+date: 2025-11-21
+tags:
+  - topic/tools/mac
+internal_links:
+ai_thread:
+---
+## バックアップ
+- Dataディレクトリ
+	- Samplepacksはrsyncでバックアップする仕組みを作った
+	- まるっと全部コピーして前回分を削除する運用でもよさそう
+- Karabiner Elementsの設定
+	- [[Karabiner-Elementsスクリプト]]
+- /Library/Audio/Presets
+	- VSTを使わないようにしたので不要
+- /Users/yuts/Library/Audio/Presets
+	- VSTを使わないようにしたので不要
+- Control Surface Studio
+## その他
+```
+
 ## システム全般の構成（提案）
 - 概要: ローカルで結合し、Google Driveを経由してNotebookLMへ取り込む流れにする
 - ローカル側:
