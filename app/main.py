@@ -6,6 +6,7 @@ from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 
 from app.config import Settings
 from app.services import chord_melody as chord_melody_service
+from app.services import obsidian_exports as obsidian_exports_service
 from app.services import rsync as rsync_service
 from app.services import similar_tones as similar_tones_service
 from app.services import whisper as whisper_service
@@ -116,3 +117,19 @@ async def search_similar_tones(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return response
+
+
+@app.post("/obsidian/exports/merge")
+async def merge_obsidian_exports() -> dict[str, object]:
+    """Merge Obsidian markdown files into grouped export files."""
+
+    try:
+        summary = obsidian_exports_service.merge_exports(settings)
+    except obsidian_exports_service.ObsidianExportPathError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except obsidian_exports_service.ObsidianFrontMatterError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover - safeguard for unexpected failures
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return summary

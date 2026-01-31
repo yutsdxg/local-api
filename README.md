@@ -121,6 +121,24 @@ curl -X POST "http://localhost:5050/audio/similar-tones/search" --get \
   --data-urlencode "top_k=10" | jq -r '.text'
 ```
 
+### 6. Obsidian ノート結合エクスポート
+
+- URL: `POST /obsidian/exports/merge`
+- パラメータ: なし（環境変数で Vault/出力先を指定）
+- 挙動:
+  - Vault の `inbox` / `journal` 配下を対象に Markdown を抽出
+  - 除外タグ `type/snippet`, `type/account` を含むノートは除外
+  - `type/journal` は 1 ファイルに結合
+  - `topic/*` は直下タグごとに結合
+  - それ以外は `others.md` に結合
+  - 毎回洗い替えで再生成
+
+例:
+
+```bash
+curl -X POST "http://localhost:5050/obsidian/exports/merge"
+```
+
 ## 環境変数
 
 `LOCAL_API_` プレフィックス付きで設定を上書きできます。
@@ -142,6 +160,13 @@ curl -X POST "http://localhost:5050/audio/similar-tones/search" --get \
 | `LOCAL_API_CHORD_MELODY_STABILITY_THRESHOLD` | `0.7` | CHORD1判定用の最低音安定性閾値 |
 | `LOCAL_API_SIMILAR_TONES_CACHE_DIR` | `data/similar-tones/cache` | Hugging Faceモデル/キャッシュ保存先 |
 | `LOCAL_API_SIMILAR_TONES_DEVICE` | `cpu` | CLAP実行デバイス（将来のMPS対応用） |
+| `LOCAL_API_OBSIDIAN_VAULT_ROOT` | `/Users/yuts/Obsidian` | Obsidian Vault ルート |
+| `LOCAL_API_OBSIDIAN_EXPORT_DIR` | `/Users/yuts/My Drive/ObsidianExports` | Obsidian 結合ファイルの出力先 |
+| `LOCAL_API_OBSIDIAN_TARGET_DIRS` | `inbox,journal` | 対象ディレクトリ（カンマ区切り） |
+| `LOCAL_API_OBSIDIAN_EXCLUDE_TAGS` | `type/snippet,type/account` | 除外タグ（カンマ区切り） |
+| `LOCAL_API_OBSIDIAN_JOURNAL_TAG` | `type/journal` | ジャーナル判定タグ |
+| `LOCAL_API_OBSIDIAN_TOPIC_PREFIX` | `topic/` | トピック判定接頭辞 |
+| `LOCAL_API_OBSIDIAN_OTHERS_GROUP_NAME` | `others` | その他グループ名 |
 
 ## n8n からの利用メモ
 
