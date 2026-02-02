@@ -36,6 +36,20 @@ class TestChordMelodyService(unittest.TestCase):
                 chord_melody_poly_threshold=0.5,
                 chord_melody_poly_note_count=1,
                 chord_melody_stability_threshold=0.5,
+                similar_tones_cache_dir=base / "cache",
+                similar_tones_device="cpu",
+                similar_tones_segment_seconds=0.4,
+                similar_tones_rms_window_seconds=0.05,
+                similar_tones_target_db_offset=14.0,
+                similar_tones_peak_weight=0.7,
+                similar_tones_target_weight=0.3,
+                obsidian_vault_root=base / "vault",
+                obsidian_export_dir=base / "exports",
+                obsidian_target_dirs=("inbox", "journal"),
+                obsidian_exclude_tags=("type/snippet", "type/account"),
+                obsidian_journal_tag="type/journal",
+                obsidian_topic_prefix="topic/",
+                obsidian_others_group_name="others",
             )
 
             with mock.patch.object(chord_melody, "_predict_audio", side_effect=_fake_predict):

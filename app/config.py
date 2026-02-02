@@ -15,6 +15,12 @@ class BaseSettings:
         env_key = f"{cls.env_prefix}{key}"
         return os.getenv(env_key, default)
 
+    @classmethod
+    def _split_csv(cls, key: str, default: str) -> tuple[str, ...]:
+        raw_value = cls._env(key, default)
+        items = [item.strip() for item in raw_value.split(",") if item.strip()]
+        return tuple(items)
+
 
 @dataclass(slots=True)
 class Settings(BaseSettings):
@@ -38,6 +44,13 @@ class Settings(BaseSettings):
     similar_tones_target_db_offset: float
     similar_tones_peak_weight: float
     similar_tones_target_weight: float
+    obsidian_vault_root: Path
+    obsidian_export_dir: Path
+    obsidian_target_dirs: tuple[str, ...]
+    obsidian_exclude_tags: tuple[str, ...]
+    obsidian_journal_tag: str
+    obsidian_topic_prefix: str
+    obsidian_others_group_name: str
 
     @classmethod
     def load(cls) -> "Settings":
@@ -70,6 +83,17 @@ class Settings(BaseSettings):
             ),
             similar_tones_peak_weight=float(cls._env("SIMILAR_TONES_PEAK_WEIGHT", "0.7")),
             similar_tones_target_weight=float(cls._env("SIMILAR_TONES_TARGET_WEIGHT", "0.3")),
+            obsidian_vault_root=Path(
+                cls._env("OBSIDIAN_VAULT_ROOT", "/Users/yuts/Library/Mobile Documents/iCloud~md~obsidian/Documents/yuts")
+            ),
+            obsidian_export_dir=Path(
+                cls._env("OBSIDIAN_EXPORT_DIR", "/Users/yuts/Library/Mobile Documents/iCloud~md~obsidian/Documents/yuts/integration")
+            ),
+            obsidian_target_dirs=cls._split_csv("OBSIDIAN_TARGET_DIRS", "inbox,journal"),
+            obsidian_exclude_tags=cls._split_csv("OBSIDIAN_EXCLUDE_TAGS", "type/snippet,type/account"),
+            obsidian_journal_tag=cls._env("OBSIDIAN_JOURNAL_TAG", "type/journal"),
+            obsidian_topic_prefix=cls._env("OBSIDIAN_TOPIC_PREFIX", "topic/"),
+            obsidian_others_group_name=cls._env("OBSIDIAN_OTHERS_GROUP_NAME", "others"),
         )
 
 
