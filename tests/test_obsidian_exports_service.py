@@ -9,6 +9,46 @@ from app.services import obsidian_exports
 
 
 class TestObsidianExportsService(unittest.TestCase):
+    def test_merge_exports_raises_when_target_dir_missing(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            vault = base / "vault"
+            export_dir = base / "exports"
+            vault.mkdir(parents=True)
+
+            settings = Settings(
+                whisper_bin="whisper",
+                whisper_model_path="model",
+                ffmpeg_bin="ffmpeg",
+                whisper_tmp_dir=base / "tmp/whisper",
+                ytdlp_bin="ytdlp",
+                ytdlp_output_dir=base / "tmp/yt",
+                rsync_bin="rsync",
+                chord_melody_input_dir=base / "input",
+                chord_melody_log_dir=base / "logs",
+                chord_melody_time_unit=1.0,
+                chord_melody_poly_threshold=0.5,
+                chord_melody_poly_note_count=1,
+                chord_melody_stability_threshold=0.5,
+                similar_tones_cache_dir=base / "cache",
+                similar_tones_device="cpu",
+                similar_tones_segment_seconds=0.4,
+                similar_tones_rms_window_seconds=0.05,
+                similar_tones_target_db_offset=14.0,
+                similar_tones_peak_weight=0.7,
+                similar_tones_target_weight=0.3,
+                obsidian_vault_root=vault,
+                obsidian_export_dir=export_dir,
+                obsidian_target_dirs=("inbox", "journal"),
+                obsidian_exclude_tags=("type/snippet", "type/account"),
+                obsidian_journal_tag="type/journal",
+                obsidian_topic_prefix="topic/",
+                obsidian_others_group_name="others",
+            )
+
+            with self.assertRaises(obsidian_exports.ObsidianExportPathError):
+                obsidian_exports.merge_exports(settings)
+
     def test_merge_exports_groups_and_orders_notes(self) -> None:
         with TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)

@@ -62,6 +62,7 @@ def merge_exports(settings: Settings) -> ExportSummary:
     output_dir = settings.obsidian_export_dir
 
     _ensure_directory(vault_root, "Vault root not found or not a directory")
+    _ensure_target_directories(vault_root, settings.obsidian_target_dirs)
     output_dir.mkdir(parents=True, exist_ok=True)
     _ensure_directory(output_dir, "Output directory not found or not a directory")
 
@@ -123,6 +124,15 @@ def _iter_markdown_files(vault_root: Path, target_dirs: Iterable[str]) -> Iterab
         for path in sorted(base.rglob("*.md")):
             if path.is_file():
                 yield path
+
+
+def _ensure_target_directories(vault_root: Path, target_dirs: Iterable[str]) -> None:
+    for target_dir in target_dirs:
+        base = vault_root / target_dir
+        if not base.is_dir():
+            raise ObsidianExportPathError(
+                f"Target directory not found or not a directory: {base}"
+            )
 
 
 def _load_note(path: Path, vault_root: Path) -> Note:

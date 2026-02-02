@@ -84,10 +84,10 @@ class Settings(BaseSettings):
             similar_tones_peak_weight=float(cls._env("SIMILAR_TONES_PEAK_WEIGHT", "0.7")),
             similar_tones_target_weight=float(cls._env("SIMILAR_TONES_TARGET_WEIGHT", "0.3")),
             obsidian_vault_root=Path(
-                cls._env("OBSIDIAN_VAULT_ROOT", "/Users/yuts/Obsidian")
+                cls._env("OBSIDIAN_VAULT_ROOT", "/Users/yuts/Library/Mobile Documents/iCloud~md~obsidian/Documents/yuts")
             ),
             obsidian_export_dir=Path(
-                cls._env("OBSIDIAN_EXPORT_DIR", "/Users/yuts/My Drive/ObsidianExports")
+                cls._env("OBSIDIAN_EXPORT_DIR", "/Users/yuts/Library/Mobile Documents/iCloud~md~obsidian/Documents/yuts/integration")
             ),
             obsidian_target_dirs=cls._split_csv("OBSIDIAN_TARGET_DIRS", "inbox,journal"),
             obsidian_exclude_tags=cls._split_csv("OBSIDIAN_EXCLUDE_TAGS", "type/snippet,type/account"),
