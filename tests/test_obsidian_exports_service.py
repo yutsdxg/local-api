@@ -44,6 +44,12 @@ class TestObsidianExportsService(unittest.TestCase):
                 obsidian_journal_tag="type/journal",
                 obsidian_topic_prefix="topic/",
                 obsidian_others_group_name="others",
+                google_docs_credentials_path=None,
+                google_docs_folder_id=None,
+                google_oauth_client_id=None,
+                google_oauth_client_secret=None,
+                google_oauth_refresh_token=None,
+                google_oauth_token_uri="https://oauth2.googleapis.com/token",
             )
 
             with self.assertRaises(obsidian_exports.ObsidianExportPathError):
@@ -108,6 +114,12 @@ class TestObsidianExportsService(unittest.TestCase):
                 obsidian_journal_tag="type/journal",
                 obsidian_topic_prefix="topic/",
                 obsidian_others_group_name="others",
+                google_docs_credentials_path=None,
+                google_docs_folder_id=None,
+                google_oauth_client_id=None,
+                google_oauth_client_secret=None,
+                google_oauth_refresh_token=None,
+                google_oauth_token_uri="https://oauth2.googleapis.com/token",
             )
 
             summary = obsidian_exports.merge_exports(settings)
