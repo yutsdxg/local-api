@@ -6,6 +6,9 @@ tensorflow-macos==2.12.0; platform_system == "Darwin" and platform_machine == "a
 tensorflow==2.12.0; platform_system != "Darwin" or platform_machine != "arm64"
 scipy==1.9.3
 pyyaml==6.0.1
+google-api-python-client>=2.0.0
+google-auth>=2.0.0
+google-auth-httplib2>=0.1.0
 torch>=2.0.0
 torchaudio>=2.0.0
 transformers>=4.30.0

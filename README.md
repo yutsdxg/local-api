@@ -123,7 +123,7 @@ curl -X POST "http://localhost:5050/audio/similar-tones/search" --get \
 
 ### 6. Obsidian ノート結合エクスポート
 
-- URL: `POST /obsidian/exports/merge`
+- URL: `POST /obsidian/merge`
 - パラメータ: なし（環境変数で Vault/出力先を指定）
 - 挙動:
   - Vault の `inbox` / `journal` 配下を対象に Markdown を抽出
@@ -136,7 +136,29 @@ curl -X POST "http://localhost:5050/audio/similar-tones/search" --get \
 例:
 
 ```bash
-curl -X POST "http://localhost:5050/obsidian/exports/merge"
+curl -X POST "http://localhost:5050/obsidian/merge"
+```
+
+### 7. Obsidian 結合ファイル → Google ドキュメント変換
+
+- URL: `POST /obsidian/exports/google-docs`
+- Query:
+  - `source_path`（変換対象の Markdown もしくはディレクトリ。`OBSIDIAN_EXPORT_DIR` 配下の相対/絶対パス）
+  - `title`（Google Docs のタイトル上書き、任意）
+  - `folder_id`（Google Drive のフォルダ ID、任意）
+- 挙動:
+  - Markdown の内容をそのまま Google Docs に挿入
+  - `source_path` がディレクトリの場合は配下の `.md` をすべて変換（再帰的）
+  - `folder_id` 未指定時は `LOCAL_API_GOOGLE_DOCS_FOLDER_ID` を使用
+  - `folder_id` がある場合はそのフォルダ内に直接作成（同名の既存ドキュメントがあれば上書き）
+  - OAuth 2.0（リフレッシュトークン）を使う場合は `LOCAL_API_GOOGLE_OAUTH_*` を設定
+
+例:
+
+```bash
+curl -X POST "http://localhost:5050/obsidian/exports/google-docs" --get \
+  --data-urlencode "source_path=others.md" \
+  --data-urlencode "title=Obsidian Export - Others"
 ```
 
 ## 環境変数
@@ -167,6 +189,12 @@ curl -X POST "http://localhost:5050/obsidian/exports/merge"
 | `LOCAL_API_OBSIDIAN_JOURNAL_TAG` | `type/journal` | ジャーナル判定タグ |
 | `LOCAL_API_OBSIDIAN_TOPIC_PREFIX` | `topic/` | トピック判定接頭辞 |
 | `LOCAL_API_OBSIDIAN_OTHERS_GROUP_NAME` | `others` | その他グループ名 |
+| `LOCAL_API_GOOGLE_DOCS_CREDENTIALS_PATH` | `` | Google API サービスアカウント JSON パス（未指定時は ADC） |
+| `LOCAL_API_GOOGLE_DOCS_FOLDER_ID` | `` | Google Drive フォルダ ID（省略可） |
+| `LOCAL_API_GOOGLE_OAUTH_CLIENT_ID` | `` | OAuth 2.0 クライアント ID（ユーザー認証） |
+| `LOCAL_API_GOOGLE_OAUTH_CLIENT_SECRET` | `` | OAuth 2.0 クライアントシークレット |
+| `LOCAL_API_GOOGLE_OAUTH_REFRESH_TOKEN` | `` | OAuth 2.0 リフレッシュトークン |
+| `LOCAL_API_GOOGLE_OAUTH_TOKEN_URI` | `https://oauth2.googleapis.com/token` | OAuth 2.0 トークンエンドポイント |
 
 ## n8n からの利用メモ
 
