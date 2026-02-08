@@ -178,4 +178,5 @@ async def export_obsidian_exports_to_google_docs(
         "document_url": result.document_url,
         "title": result.title,
         "folder_id": result.folder_id,
+        "skipped": result.skipped,
     }

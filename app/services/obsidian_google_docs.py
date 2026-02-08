@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, MutableMapping
 
 from app.config import Settings
 
@@ -54,6 +56,7 @@ class GoogleDocsExportResult:
     document_url: str
     title: str
     folder_id: str | None
+    skipped: bool
 
 
 def export_markdown_to_google_docs(
@@ -64,14 +67,20 @@ def export_markdown_to_google_docs(
     folder_id: str | None = None,
 ) -> GoogleDocsExportResult:
     docs_service, drive_service = _build_services(settings)
-    return _export_markdown_with_services(
+    manifest_path = _get_manifest_path(settings.obsidian_export_dir)
+    manifest = _load_manifest(manifest_path)
+    result, updated = _export_markdown_with_services(
         settings,
         docs_service,
         drive_service,
         source_path,
         title=title,
         folder_id=folder_id,
+        manifest=manifest,
     )
+    if updated:
+        _save_manifest(manifest_path, manifest)
+    return result
 
 
 def export_markdown_directory_to_google_docs(
@@ -82,20 +91,26 @@ def export_markdown_directory_to_google_docs(
 ) -> list[GoogleDocsExportResult]:
     docs_service, drive_service = _build_services(settings)
     resolved_dir = _resolve_source_dir(settings.obsidian_export_dir, source_dir)
+    manifest_path = _get_manifest_path(settings.obsidian_export_dir)
+    manifest = _load_manifest(manifest_path)
+    manifest_dirty = False
     results: list[GoogleDocsExportResult] = []
     for markdown_path in sorted(resolved_dir.rglob("*.md")):
         if not markdown_path.is_file():
             continue
-        results.append(
-            _export_markdown_with_services(
-                settings,
-                docs_service,
-                drive_service,
-                markdown_path,
-                title=None,
-                folder_id=folder_id,
-            )
+        result, updated = _export_markdown_with_services(
+            settings,
+            docs_service,
+            drive_service,
+            markdown_path,
+            title=None,
+            folder_id=folder_id,
+            manifest=manifest,
         )
+        manifest_dirty = manifest_dirty or updated
+        results.append(result)
+    if manifest_dirty:
+        _save_manifest(manifest_path, manifest)
     return results
 
 
@@ -107,14 +122,39 @@ def _export_markdown_with_services(
     *,
     title: str | None,
     folder_id: str | None,
-) -> GoogleDocsExportResult:
+    manifest: MutableMapping[str, dict[str, object]] | None = None,
+) -> tuple[GoogleDocsExportResult, bool]:
     export_dir = settings.obsidian_export_dir
     resolved_path = _resolve_source_path(export_dir, source_path)
     markdown_text = resolved_path.read_text(encoding="utf-8")
     document_title = title or resolved_path.stem
     target_folder_id = folder_id or settings.google_docs_folder_id
 
-    document_id = _create_or_replace_document(
+    manifest_key = str(resolved_path)
+    content_hash = _compute_content_hash(markdown_text)
+    if manifest is not None:
+        entry = manifest.get(manifest_key)
+        if (
+            entry
+            and entry.get("hash") == content_hash
+            and entry.get("title") == document_title
+            and entry.get("folder_id") == target_folder_id
+        ):
+            document_id = str(entry.get("document_id") or "")
+            if document_id and _drive_file_exists(drive_service, document_id):
+                return (
+                    GoogleDocsExportResult(
+                        source_path=str(resolved_path),
+                        document_id=document_id,
+                        document_url=f"https://docs.google.com/document/d/{document_id}/edit",
+                        title=document_title,
+                        folder_id=target_folder_id,
+                        skipped=True,
+                    ),
+                    False,
+                )
+
+    document_id, skipped = _create_or_replace_document(
         docs_service,
         drive_service,
         document_title,
@@ -122,13 +162,67 @@ def _export_markdown_with_services(
         markdown_text,
     )
 
-    return GoogleDocsExportResult(
+    result = GoogleDocsExportResult(
         source_path=str(resolved_path),
         document_id=document_id,
         document_url=f"https://docs.google.com/document/d/{document_id}/edit",
         title=document_title,
         folder_id=target_folder_id,
+        skipped=skipped,
     )
+    if manifest is not None and not skipped:
+        manifest[manifest_key] = {
+            "hash": content_hash,
+            "document_id": document_id,
+            "title": document_title,
+            "folder_id": target_folder_id,
+        }
+        return result, True
+    return result, False
+
+
+def _get_manifest_path(export_dir: Path) -> Path:
+    return export_dir / ".google_docs_export_manifest.json"
+
+
+def _load_manifest(path: Path) -> dict[str, dict[str, object]]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(key): dict(value) for key, value in data.items() if isinstance(value, dict)}
+
+
+def _save_manifest(path: Path, manifest: dict[str, dict[str, object]]) -> None:
+    path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _compute_content_hash(text: str) -> str:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _drive_file_exists(drive_service: object, document_id: str) -> bool:
+    try:
+        file = (
+            drive_service.files()
+            .get(
+                fileId=document_id,
+                fields="id",
+                supportsAllDrives=True,
+            )
+            .execute()
+        )
+    except HttpError:
+        return False
+    return bool(file.get("id"))
 
 
 def _resolve_source_path(export_dir: Path, source_path: Path) -> Path:
@@ -226,14 +320,17 @@ def _create_or_replace_document(
     title: str,
     folder_id: str | None,
     text: str,
-) -> str:
+) -> tuple[str, bool]:
     try:
         if folder_id:
             existing_id = _find_existing_document(drive_service, title, folder_id)
             if existing_id:
+                existing_text = _get_document_text(docs_service, existing_id)
+                if _normalize_doc_text(existing_text) == _normalize_doc_text(text):
+                    return existing_id, True
                 _clear_document(docs_service, existing_id)
                 _insert_text(docs_service, existing_id, text)
-                return existing_id
+                return existing_id, False
 
             file = (
                 drive_service.files()
@@ -250,12 +347,12 @@ def _create_or_replace_document(
             )
             document_id = str(file.get("id"))
             _insert_text(docs_service, document_id, text)
-            return document_id
+            return document_id, False
 
         document = docs_service.documents().create(body={"title": title}).execute()
         document_id = str(document.get("documentId"))
         _insert_text(docs_service, document_id, text)
-        return document_id
+        return document_id, False
     except HttpError as exc:  # pragma: no cover - requires Google API
         raise GoogleDocsUploadError(f"Failed to create Google Doc: {exc}") from exc
 
@@ -314,6 +411,31 @@ def _find_existing_document(drive_service: object, title: str, folder_id: str) -
     if not files:
         return None
     return str(files[0].get("id"))
+
+
+def _get_document_text(docs_service: object, document_id: str) -> str:
+    document = docs_service.documents().get(documentId=document_id).execute()
+    body = document.get("body", {})
+    content = body.get("content", [])
+    chunks: list[str] = []
+    for element in content:
+        paragraph = element.get("paragraph")
+        if not paragraph:
+            continue
+        for para_element in paragraph.get("elements", []):
+            text_run = para_element.get("textRun")
+            if not text_run:
+                continue
+            chunks.append(text_run.get("content", ""))
+    return "".join(chunks)
+
+
+def _normalize_doc_text(text: str) -> str:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = normalized.replace("\u00a0", " ")
+    lines = [line.rstrip(" \t") for line in normalized.split("\n")]
+    normalized = "\n".join(lines)
+    return normalized.rstrip("\n")
 
 
 def _clear_document(docs_service: object, document_id: str) -> None:
