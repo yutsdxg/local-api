@@ -78,6 +78,12 @@ curl -X POST "http://localhost:5050/rsync" --get \
   --data-urlencode "dst=/Volumes/Backup/Samples/Samplepacks"
 ```
 
+```bash
+curl -X POST "http://localhost:5050/rsync" --get \
+  --data-urlencode "src=/Users/yuts/Data/Sound Library/Ableton/User Library/Samples/References" \
+  --data-urlencode "dst=/Volumes/Backup/Samples/References"
+```
+
 ### 4. コード/メロディ判定（AnalyzeChordMelody 移植）
 
 - URL: `POST /audio/analyze/chord-melody`
