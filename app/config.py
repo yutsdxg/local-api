@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,11 +22,19 @@ class BaseSettings:
         items = [item.strip() for item in raw_value.split(",") if item.strip()]
         return tuple(items)
 
+    @classmethod
+    def _split_args(cls, key: str, default: str) -> tuple[str, ...]:
+        raw_value = cls._env(key, default)
+        if not raw_value.strip():
+            return ()
+        return tuple(shlex.split(raw_value))
+
 
 @dataclass(slots=True)
 class Settings(BaseSettings):
     whisper_bin: str
     whisper_model_path: str
+    whisper_args: tuple[str, ...]
     ffmpeg_bin: str
     whisper_tmp_dir: Path
     ytdlp_bin: str
@@ -76,6 +85,7 @@ class Settings(BaseSettings):
             whisper_model_path=cls._env(
                 "WHISPER_MODEL_PATH", "/Users/yuts/Data/Dev/whisper.cpp/models/ggml-medium.bin"
             ),
+            whisper_args=cls._split_args("WHISPER_ARGS", "-ng -nt -np"),
             ffmpeg_bin=cls._env("FFMPEG_BIN", "ffmpeg"),
             whisper_tmp_dir=Path(cls._env("WHISPER_TMP_DIR", "data/tmp/whisper")),
             ytdlp_bin=cls._env("YTDLP_BIN", "yt-dlp"),

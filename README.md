@@ -4,31 +4,43 @@ Whisper 文字起こし・yt-dlp 音声抽出・コード/メロディ判定を�
 
 ## 前提条件
 
-- Python 3.10
+- `uv`（例: `brew install uv`）
 - `whisper-cli`（例: `brew install whisper-cpp`）
 - `ffmpeg`
 - `yt-dlp`
 - モデルファイル（デフォルト: `model/ggml-medium.bin`）
+
+Python 3.10 と `.venv` は `uv` が `.python-version` と `pyproject.toml` をもとに用意します。
 
 ## 事前準備
 
 - 一時/出力ディレクトリを作成: `mkdir -p data/tmp/whisper data/tmp/yt-dlp data/chord-melody/input data/chord-melody/logs logs`
 - Whisper 用モデルを `model/` 配下に配置（例: `model/ggml-medium.bin`）。
 - パスを変えたい場合は環境変数で上書きします（`## 環境変数` を参照）。
+- Whisper はデフォルトで `-ng -nt -np` を付けて CPU モードで実行します。Metal/GPU 経路を試す場合は `LOCAL_API_WHISPER_ARGS=""` を設定してください。
 
 ## セットアップ
 
 ```bash
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+uv sync
 ```
+
+`uv sync` は `.venv` の作成、Python 3.10 の準備、依存パッケージのインストールをまとめて行います。
 
 ## 起動方法
 
+サーバーを起動するときは以下を実行します。
+
 ```bash
-source venv/bin/activate
-uvicorn app.main:app --host 0.0.0.0 --port 5050
+uv run uvicorn app.main:app --host 0.0.0.0 --port 5050
+```
+
+`uv run` が `.venv` を自動的に使うため、事前に `source .venv/bin/activate` する必要はありません。
+
+## テスト
+
+```bash
+uv run python -m unittest discover -s tests
 ```
 
 ## エンドポイント
@@ -175,6 +187,7 @@ curl -X POST "http://localhost:5050/obsidian/exports/google-docs" --get \
 | --- | --- | --- |
 | `LOCAL_API_WHISPER_BIN` | `/opt/homebrew/.../whisper-cli` | whisper-cli のパス |
 | `LOCAL_API_WHISPER_MODEL_PATH` | `/Users/.../ggml-medium.bin` | モデルファイル |
+| `LOCAL_API_WHISPER_ARGS` | `-ng -nt -np` | whisper-cli 追加引数。デフォルトは CPU 安定運用用。空文字で追加引数なし |
 | `LOCAL_API_WHISPER_TMP_DIR` | `data/tmp` | Whisper 一時ディレクトリ |
 | `LOCAL_API_FFMPEG_BIN` | `ffmpeg` | ffmpeg コマンド |
 | `LOCAL_API_YTDLP_BIN` | `yt-dlp` | yt-dlp コマンド |

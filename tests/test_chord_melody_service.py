@@ -25,6 +25,7 @@ class TestChordMelodyService(unittest.TestCase):
             settings = Settings(
                 whisper_bin="whisper",
                 whisper_model_path="model",
+                whisper_args=("-ng", "-nt", "-np"),
                 ffmpeg_bin="ffmpeg",
                 whisper_tmp_dir=base / "tmp/whisper",
                 ytdlp_bin="ytdlp",

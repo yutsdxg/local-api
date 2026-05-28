@@ -18,6 +18,7 @@ class TestObsidianGoogleDocsEndpoint(unittest.TestCase):
             document_url="https://docs.google.com/document/d/doc-id/edit",
             title="others",
             folder_id=None,
+            skipped=False,
         )
 
         with mock.patch.object(
@@ -42,6 +43,7 @@ class TestObsidianGoogleDocsEndpoint(unittest.TestCase):
                 "document_url": "https://docs.google.com/document/d/doc-id/edit",
                 "title": "others",
                 "folder_id": None,
+                "skipped": False,
             },
             result,
         )

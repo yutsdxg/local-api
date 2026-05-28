@@ -78,6 +78,7 @@ async def transcribe_upload(
             str(output_prefix),
             "-l",
             language,
+            *settings.whisper_args,
         ]
         _run_command(whisper_cmd, "Whisper failed to process the audio file.")
 
