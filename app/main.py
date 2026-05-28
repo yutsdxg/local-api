@@ -5,11 +5,9 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 
 from app.config import Settings
-from app.services import chord_melody as chord_melody_service
 from app.services import obsidian_exports as obsidian_exports_service
 from app.services import obsidian_google_docs as obsidian_google_docs_service
 from app.services import rsync as rsync_service
-from app.services import similar_tones as similar_tones_service
 from app.services import whisper as whisper_service
 from app.services import ytdlp as ytdlp_service
 
@@ -64,60 +62,6 @@ async def sync_directories(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return {"synced": synced}
-
-
-@app.post("/audio/analyze/chord-melody")
-async def analyze_chord_melody() -> dict[str, list[dict[str, str]]]:
-    """Analyze chord/melody classification for .wav files and rename them."""
-
-    try:
-        results = chord_melody_service.analyze_chord_melody(settings)
-    except chord_melody_service.ChordMelodyPathError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except chord_melody_service.ChordMelodyExecutionError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    return {"results": results}
-
-
-@app.post("/audio/similar-tones/index")
-async def create_similar_tones_index(
-    preset_dir: str = Query(..., description="Directory with preset audio files"),
-    output_path: str = Query(..., description="Path to output index file"),
-) -> dict[str, str | int]:
-    """Create an index for similar-tones search."""
-
-    try:
-        summary = similar_tones_service.create_index(
-            settings, Path(preset_dir), Path(output_path)
-        )
-    except similar_tones_service.SimilarTonesPathError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except similar_tones_service.SimilarTonesExecutionError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    return summary
-
-
-@app.post("/audio/similar-tones/search")
-async def search_similar_tones(
-    target_path: str = Query(..., description="Target audio file path"),
-    index_path: str = Query(..., description="Index file path(s), comma-separated"),
-    top_k: int = Query(10, ge=1, description="Number of similar presets to return"),
-) -> dict[str, object]:
-    """Search for similar preset tones based on a target audio file."""
-
-    try:
-        index_paths = [Path(path.strip()) for path in index_path.split(",") if path.strip()]
-        response = similar_tones_service.search_similar(
-            settings, Path(target_path), index_paths, top_k
-        )
-    except similar_tones_service.SimilarTonesPathError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except similar_tones_service.SimilarTonesExecutionError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    return response
 
 
 @app.post("/obsidian/merge")
