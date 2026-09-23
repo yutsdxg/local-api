@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import io
+import shutil
+import struct
+import subprocess
 import unittest
+import wave
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
@@ -15,6 +20,50 @@ from app.services import whisper as whisper_service
 
 
 class TestWhisperService(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.base = Path(temporary.name)
+        self.archive = self.base / "whisper"
+        self.archive.mkdir()
+        self.settings = _settings(self.archive, whisper_args=("-ng", "-nt", "-np"))
+        self.vad_model = self.base / "vad.bin"
+        self.vad_model.write_bytes(b"test model")
+        self.calls: list[list[str]] = []
+        self.converted_frames = 16000
+        self.transcription = "transcribed"
+
+    def fake_run(self, cmd: list[str], check: bool) -> None:
+        self.assertTrue(check)
+        self.calls.append(cmd)
+        if "-of" in cmd:
+            output_prefix = Path(cmd[cmd.index("-of") + 1])
+            output_prefix.with_suffix(".txt").write_text(self.transcription, encoding="utf-8")
+        elif cmd[0] == "ffmpeg":
+            _write_wav(Path(cmd[-1]), self.converted_frames, int(cmd[cmd.index("-ar") + 1]))
+        else:
+            source = Path(cmd[-1])
+            output_dir = Path(cmd[cmd.index("-o") + 1])
+            shutil.copyfile(source, output_dir / source.name)
+
+    def transcribe(self, settings: Settings, filename: str = "audio.m4a") -> str:
+        upload = UploadFile(filename=filename, file=io.BytesIO(b"audio"))
+        with mock.patch.object(whisper_service.subprocess, "run", side_effect=self.fake_run):
+            return asyncio.run(whisper_service.transcribe_upload(upload, settings))
+
+    def modern_settings(self, profile: str = "vad", **overrides: object) -> Settings:
+        return replace(self.settings, whisper_preprocessing=profile,
+                       whisper_vad_model_path=self.vad_model, **overrides)
+
+    def deepfilter_settings(self, **overrides: object) -> Settings:
+        binary = self.base / "deep-filter"
+        binary.write_text("#!/bin/sh\n", encoding="utf-8")
+        binary.chmod(0o755)
+        model = self.base / "dfn.tar.gz"
+        model.write_bytes(b"test model")
+        return self.modern_settings("deepfilter", whisper_deepfilter_bin=str(binary),
+                                    whisper_deepfilter_model_path=model, **overrides)
+
     def test_transcribe_upload_passes_configured_whisper_args(self) -> None:
         with TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
@@ -30,6 +79,8 @@ class TestWhisperService(unittest.TestCase):
                 if "-of" in cmd:
                     output_prefix = Path(cmd[cmd.index("-of") + 1])
                     output_prefix.with_suffix(".txt").write_text("transcribed", encoding="utf-8")
+                else:
+                    _write_wav(Path(cmd[-1]), 16000)
 
             with mock.patch.object(whisper_service.subprocess, "run", side_effect=fake_run):
                 text = asyncio.run(
@@ -44,6 +95,152 @@ class TestWhisperService(unittest.TestCase):
             self.assertIn("-np", whisper_cmd)
             self.assertEqual(["-l", "ja", "-ng", "-nt", "-np"], whisper_cmd[-5:])
 
+    def test_legacy_keeps_filters_and_does_not_require_optional_models(self) -> None:
+        settings = replace(self.settings, whisper_normalize=False,
+                           whisper_vad_model_path=self.base / "missing-vad.bin",
+                           whisper_deepfilter_bin="missing-deep-filter")
+        self.assertEqual("transcribed", self.transcribe(settings))
+        conversion, whisper = self.calls
+        self.assertEqual(
+            "highpass=f=120, lowpass=f=8000, dynaudnorm=f=200:g=7, "
+            "silenceremove=start_periods=1:start_duration=0.8:"
+            "start_threshold=-50dB:stop_periods=-1:stop_duration=0.8:stop_threshold=-50dB",
+            conversion[conversion.index("-af") + 1],
+        )
+        self.assertNotIn("--vad", whisper)
+
+    def test_vad_preserves_audio_without_silence_or_band_filters(self) -> None:
+        settings = self.modern_settings(whisper_deepfilter_bin="missing-deep-filter")
+        self.assertEqual("transcribed", self.transcribe(settings))
+        conversion, whisper = self.calls
+        self.assertNotIn("-af", conversion)
+        self.assertEqual("16000", conversion[conversion.index("-ar") + 1])
+        self.assertIn("--vad", whisper)
+        for option, value in (
+            ("--vad-model", str(self.vad_model)),
+            ("--vad-threshold", "0.5"),
+            ("--vad-min-speech-duration-ms", "100"),
+            ("--vad-min-silence-duration-ms", "500"),
+            ("--vad-speech-pad-ms", "200"),
+        ):
+            self.assertEqual(value, whisper[whisper.index(option) + 1])
+        self.assertEqual(["-l", "ja", "-ng", "-nt", "-np"], whisper[-5:])
+
+    def test_vad_normalization_is_optional_and_has_no_silence_filter(self) -> None:
+        self.transcribe(self.modern_settings(whisper_normalize=True))
+        conversion = self.calls[0]
+        self.assertEqual("dynaudnorm=f=200:g=7", conversion[conversion.index("-af") + 1])
+
+    def test_missing_selected_model_fails_before_running_commands(self) -> None:
+        settings = replace(self.modern_settings(), whisper_vad_model_path=self.base / "missing.bin")
+        with self.assertRaisesRegex(whisper_service.WhisperError, "VAD model not found"):
+            self.transcribe(settings)
+        self.assertEqual([], self.calls)
+
+    def test_missing_selected_deepfilter_executable_is_reported(self) -> None:
+        settings = self.modern_settings("deepfilter", whisper_deepfilter_bin=str(self.base / "missing"))
+        with self.assertRaisesRegex(whisper_service.WhisperError, "DeepFilterNet executable not found"):
+            self.transcribe(settings)
+        self.assertEqual([], self.calls)
+
+    def test_invalid_profiles_and_vad_parameters_are_rejected(self) -> None:
+        cases = [
+            replace(self.settings, whisper_preprocessing="invalid"),
+            self.modern_settings(whisper_vad_threshold=1.5),
+            self.modern_settings(whisper_vad_threshold=float("nan")),
+            self.modern_settings(whisper_vad_speech_pad_ms=-1),
+        ]
+        for settings in cases:
+            with self.subTest(settings=settings), self.assertRaises(whisper_service.WhisperError):
+                self.transcribe(settings)
+        self.assertEqual([], self.calls)
+
+    def test_empty_converted_wav_skips_whisper_and_preserves_empty_archive(self) -> None:
+        self.converted_frames = 0
+        self.assertEqual("", self.transcribe(self.modern_settings()))
+        self.assertEqual(1, len(self.calls))
+        self.assertEqual(1, len(list(self.archive.glob("whisper_input_*.wav"))))
+        outputs = list(self.archive.glob("whisper_output_*.txt"))
+        self.assertEqual(1, len(outputs))
+        self.assertEqual("", outputs[0].read_text(encoding="utf-8"))
+
+    def test_no_speech_result_is_empty_text_success(self) -> None:
+        self.transcription = ""
+        self.assertEqual("", self.transcribe(self.modern_settings()))
+
+    def test_upload_filename_cannot_escape_temporary_directory(self) -> None:
+        outside = self.base / "should-not-be-written"
+        self.transcribe(self.settings, filename=str(outside))
+        actual_input = Path(self.calls[0][self.calls[0].index("-i") + 1])
+        self.assertEqual("upload.audio", actual_input.name)
+        self.assertFalse(outside.exists())
+        self.assertFalse(actual_input.parent.exists())
+
+    def test_deepfilter_runs_at_48k_then_trims_padding_before_normalizing(self) -> None:
+        self.transcribe(self.deepfilter_settings(whisper_normalize=True))
+        self.assertEqual(4, len(self.calls))
+        decode, denoise, convert, whisper = self.calls
+        self.assertEqual("48000", decode[decode.index("-ar") + 1])
+        self.assertNotIn("-af", decode)
+        self.assertEqual("12.0", denoise[denoise.index("-a") + 1])
+        self.assertIn("-D", denoise)
+        self.assertNotIn("--pf", denoise)
+        self.assertEqual("atrim=end_sample=16000,dynaudnorm=f=200:g=7",
+                         convert[convert.index("-af") + 1])
+        self.assertEqual("16000", convert[convert.index("-ar") + 1])
+        self.assertIn("--vad", whisper)
+        self.assertFalse(Path(denoise[-1]).parent.exists())
+        self.assertEqual(2, len(list(self.archive.iterdir())))
+
+    def test_deepfilter_reflection_padding_keeps_original_samples_and_flushes_short_tail(self) -> None:
+        for frames in (1, 47, 2000):
+            with self.subTest(frames=frames):
+                source = self.base / "source.wav"
+                padded = self.base / "padded.wav"
+                original = struct.pack(f"<{frames}h", *range(1, frames + 1))
+                with wave.open(str(source), "wb") as output:
+                    output.setparams((1, 2, 48000, 0, "NONE", "not compressed"))
+                    output.writeframes(original)
+                whisper_service._pad_deepfilter_input(source, padded)
+                with wave.open(str(padded), "rb") as result:
+                    self.assertEqual(frames + 1920, result.getnframes())
+                    self.assertEqual(original, result.readframes(frames))
+                    padding = result.readframes(1920)
+                    self.assertEqual(struct.pack("<h", frames), padding[:2])
+                    self.assertNotEqual(b"\0" * len(padding), padding)
+
+    def test_deepfilter_failure_cleans_intermediate_files_and_raises_whisper_error(self) -> None:
+        settings = self.deepfilter_settings()
+        captured_work_dirs = []
+
+        def fail_denoise(cmd: list[str], check: bool) -> None:
+            if cmd[0] == settings.whisper_deepfilter_bin:
+                captured_work_dirs.append(Path(cmd[-1]).parent)
+                raise subprocess.CalledProcessError(1, cmd)
+            self.fake_run(cmd, check)
+
+        upload = UploadFile(filename="audio.wav", file=io.BytesIO(b"audio"))
+        with mock.patch.object(whisper_service.subprocess, "run", side_effect=fail_denoise):
+            with self.assertRaisesRegex(whisper_service.WhisperError, "DeepFilterNet failed"):
+                asyncio.run(whisper_service.transcribe_upload(upload, settings))
+        self.assertEqual(1, len(captured_work_dirs))
+        self.assertFalse(captured_work_dirs[0].exists())
+        self.assertEqual([], list(self.archive.iterdir()))
+
+    def test_deepfilter_bypass_attenuation_is_rejected_to_avoid_delay_shift(self) -> None:
+        for attenuation in (0, 0.005, -1, float("nan"), float("inf")):
+            with self.subTest(attenuation=attenuation):
+                with self.assertRaisesRegex(whisper_service.WhisperError, "attenuation"):
+                    self.transcribe(self.deepfilter_settings(
+                        whisper_deepfilter_attenuation_limit_db=attenuation
+                    ))
+        self.assertEqual([], self.calls)
+
+    def test_deepfilter_minimum_non_bypass_attenuation_is_allowed(self) -> None:
+        self.assertEqual("transcribed", self.transcribe(self.deepfilter_settings(
+            whisper_deepfilter_attenuation_limit_db=0.01
+        )))
+
     def test_whisper_endpoint_response_contract_is_unchanged(self) -> None:
         upload = mock.Mock(spec=UploadFile)
 
@@ -57,6 +254,12 @@ class TestWhisperService(unittest.TestCase):
 
         mocked_transcribe.assert_awaited_once_with(upload, main.settings, language="ja")
         self.assertEqual({"text": "transcribed"}, result)
+
+
+def _write_wav(path: Path, frames: int, sample_rate: int = 16000) -> None:
+    with wave.open(str(path), "wb") as output:
+        output.setparams((1, 2, sample_rate, 0, "NONE", "not compressed"))
+        output.writeframes(struct.pack("<h", 1000) * frames)
 
 
 def _settings(

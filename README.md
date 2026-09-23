@@ -10,7 +10,7 @@ Whisper 文字起こし・yt-dlp 音声抽出・Obsidian エクスポートを�
 - `yt-dlp`
 - モデルファイル（デフォルト: `model/ggml-medium.bin`）
 
-Python 3.10 と `.venv` は `uv` が `.python-version` と `pyproject.toml` をもとに用意します。
+Python 3.14 と `.venv` は `uv` が `.python-version` と `pyproject.toml` をもとに用意します。
 
 ## 事前準備
 
@@ -25,7 +25,7 @@ Python 3.10 と `.venv` は `uv` が `.python-version` と `pyproject.toml` を�
 uv sync
 ```
 
-`uv sync` は `.venv` の作成、Python 3.10 の準備、依存パッケージのインストールをまとめて行います。
+`uv sync` は `.venv` の作成、Python 3.14 の準備、依存パッケージのインストールをまとめて行います。
 
 ## 起動方法
 
@@ -56,6 +56,10 @@ uv run python -m unittest discover -s tests
 curl -X POST "http://localhost:5050/whisper" \
   -F "file=@/path/to/audio.m4a"
 ```
+
+前処理は `LOCAL_API_WHISPER_PREPROCESSING` で切り替えます。既定の `legacy` は従来のFFmpeg処理、`vad` はSileroによる発話検出、`deepfilter` はDeepFilterNet3によるノイズ除去と発話検出です。`vad` / `deepfilter` はモデルの準備が必要です。VADで発話が検出されない場合は `{"text": ""}` を返します。
+
+導入・設定・同一音声での比較方法は [Whisper前処理](docs/whisper-preprocessing.md) を参照してください。
 
 ### 2. YouTube 音声抽出
 
@@ -145,6 +149,9 @@ curl -X POST "http://localhost:5050/obsidian/exports/google-docs" --get \
 | `LOCAL_API_WHISPER_BIN` | `/opt/homebrew/.../whisper-cli` | whisper-cli のパス |
 | `LOCAL_API_WHISPER_MODEL_PATH` | `/Users/.../ggml-medium.bin` | モデルファイル |
 | `LOCAL_API_WHISPER_ARGS` | `-ng -nt -np` | whisper-cli 追加引数。デフォルトは CPU 安定運用用。空文字で追加引数なし |
+| `LOCAL_API_WHISPER_PREPROCESSING` | `legacy` | `legacy` / `vad` / `deepfilter`。新しい処理は明示的に選択 |
+| `LOCAL_API_WHISPER_NORMALIZE` | `false` | `vad` / `deepfilter` で音量自動調整を追加するか。`legacy` は従来の調整を維持 |
+| `LOCAL_API_WHISPER_VAD_MODEL_PATH` | `data/models/ggml-silero-v6.2.0.bin` | Silero VADモデル。詳細な閾値・DeepFilterNet設定は前処理ドキュメントを参照 |
 | `LOCAL_API_WHISPER_TMP_DIR` | `data/tmp` | Whisper 一時ディレクトリ |
 | `LOCAL_API_FFMPEG_BIN` | `ffmpeg` | ffmpeg コマンド |
 | `LOCAL_API_YTDLP_BIN` | `yt-dlp` | yt-dlp コマンド |

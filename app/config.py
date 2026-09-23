@@ -29,6 +29,15 @@ class BaseSettings:
             return ()
         return tuple(shlex.split(raw_value))
 
+    @classmethod
+    def _bool(cls, key: str, default: bool) -> bool:
+        raw_value = cls._env(key, str(default)).strip().lower()
+        if raw_value in {"1", "true", "yes", "on"}:
+            return True
+        if raw_value in {"0", "false", "no", "off"}:
+            return False
+        raise ValueError(f"{cls.env_prefix}{key} must be a boolean.")
+
 
 @dataclass(slots=True)
 class Settings(BaseSettings):
@@ -53,6 +62,20 @@ class Settings(BaseSettings):
     google_oauth_client_secret: str | None
     google_oauth_refresh_token: str | None
     google_oauth_token_uri: str
+    whisper_preprocessing: str = "legacy"
+    whisper_normalize: bool = False
+    whisper_vad_model_path: Path = Path("data/models/ggml-silero-v6.2.0.bin")
+    whisper_vad_threshold: float = 0.5
+    whisper_vad_min_speech_duration_ms: int = 100
+    whisper_vad_min_silence_duration_ms: int = 500
+    whisper_vad_speech_pad_ms: int = 200
+    whisper_deepfilter_bin: str = (
+        "data/models/deepfilternet/deep-filter-0.5.6-aarch64-apple-darwin"
+    )
+    whisper_deepfilter_model_path: Path = Path(
+        "data/models/deepfilternet/DeepFilterNet3_onnx.tar.gz"
+    )
+    whisper_deepfilter_attenuation_limit_db: float = 12.0
 
     @classmethod
     def load(cls) -> "Settings":
@@ -97,6 +120,30 @@ class Settings(BaseSettings):
             google_oauth_client_secret=google_oauth_client_secret,
             google_oauth_refresh_token=google_oauth_refresh_token,
             google_oauth_token_uri=google_oauth_token_uri,
+            whisper_preprocessing=cls._env("WHISPER_PREPROCESSING", "legacy").strip().lower(),
+            whisper_normalize=cls._bool("WHISPER_NORMALIZE", False),
+            whisper_vad_model_path=Path(cls._env(
+                "WHISPER_VAD_MODEL_PATH", "data/models/ggml-silero-v6.2.0.bin"
+            )),
+            whisper_vad_threshold=float(cls._env("WHISPER_VAD_THRESHOLD", "0.5")),
+            whisper_vad_min_speech_duration_ms=int(cls._env(
+                "WHISPER_VAD_MIN_SPEECH_DURATION_MS", "100"
+            )),
+            whisper_vad_min_silence_duration_ms=int(cls._env(
+                "WHISPER_VAD_MIN_SILENCE_DURATION_MS", "500"
+            )),
+            whisper_vad_speech_pad_ms=int(cls._env("WHISPER_VAD_SPEECH_PAD_MS", "200")),
+            whisper_deepfilter_bin=cls._env(
+                "WHISPER_DEEPFILTER_BIN",
+                "data/models/deepfilternet/deep-filter-0.5.6-aarch64-apple-darwin",
+            ),
+            whisper_deepfilter_model_path=Path(cls._env(
+                "WHISPER_DEEPFILTER_MODEL_PATH",
+                "data/models/deepfilternet/DeepFilterNet3_onnx.tar.gz",
+            )),
+            whisper_deepfilter_attenuation_limit_db=float(cls._env(
+                "WHISPER_DEEPFILTER_ATTENUATION_LIMIT_DB", "12"
+            )),
         )
 
 
