@@ -41,6 +41,7 @@ def wav_info(path: Path) -> dict[str, int | float]:
         return {
             "sample_rate": audio.getframerate(),
             "channels": audio.getnchannels(),
+            "sample_width_bytes": audio.getsampwidth(),
             "frames": audio.getnframes(),
             "seconds": audio.getnframes() / audio.getframerate(),
         }
@@ -114,8 +115,9 @@ def main() -> None:
     command = [settings.ffmpeg_bin, "-hide_banner", "-loglevel", "error", "-ss", str(args.start), "-i", str(source)]
     if args.duration is not None:
         command += ["-t", str(args.duration)]
-    # Preserve native channels and sample rate until the production pipeline.
-    command += ["-map", "0:a:0", "-c:a", "pcm_s16le", str(excerpt)]
+    # Preserve native channels/rate and up to 32-bit integer precision (the
+    # supplied ALAC recordings are 24-bit) until the production pipeline.
+    command += ["-map", "0:a:0", "-c:a", "pcm_s32le", str(excerpt)]
     subprocess.run(command, check=True)
     if wav_info(excerpt)["frames"] == 0:
         raise ValueError("The selected excerpt contains no audio samples.")
