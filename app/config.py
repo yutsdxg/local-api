@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     google_oauth_client_secret: str | None
     google_oauth_refresh_token: str | None
     google_oauth_token_uri: str
-    whisper_preprocessing: str = "legacy"
+    whisper_preprocessing: str = "vad"
     whisper_normalize: bool = False
     whisper_vad_model_path: Path = Path("data/models/ggml-silero-v6.2.0.bin")
     whisper_vad_threshold: float = 0.5
@@ -120,7 +120,7 @@ class Settings(BaseSettings):
             google_oauth_client_secret=google_oauth_client_secret,
             google_oauth_refresh_token=google_oauth_refresh_token,
             google_oauth_token_uri=google_oauth_token_uri,
-            whisper_preprocessing=cls._env("WHISPER_PREPROCESSING", "legacy").strip().lower(),
+            whisper_preprocessing=cls._env("WHISPER_PREPROCESSING", "vad").strip().lower(),
             whisper_normalize=cls._bool("WHISPER_NORMALIZE", False),
             whisper_vad_model_path=Path(cls._env(
                 "WHISPER_VAD_MODEL_PATH", "data/models/ggml-silero-v6.2.0.bin"

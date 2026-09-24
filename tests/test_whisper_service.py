@@ -26,9 +26,12 @@ class TestWhisperService(unittest.TestCase):
         self.base = Path(temporary.name)
         self.archive = self.base / "whisper"
         self.archive.mkdir()
-        self.settings = _settings(self.archive, whisper_args=("-ng", "-nt", "-np"))
         self.vad_model = self.base / "vad.bin"
         self.vad_model.write_bytes(b"test model")
+        self.settings = replace(
+            _settings(self.archive, whisper_args=("-ng", "-nt", "-np")),
+            whisper_vad_model_path=self.vad_model,
+        )
         self.calls: list[list[str]] = []
         self.converted_frames = 16000
         self.transcription = "transcribed"
@@ -69,7 +72,10 @@ class TestWhisperService(unittest.TestCase):
             tmp_path = Path(tmpdir)
             whisper_tmp_dir = tmp_path / "whisper"
             whisper_tmp_dir.mkdir()
-            settings = _settings(whisper_tmp_dir, whisper_args=("-ng", "-nt", "-np"))
+            settings = replace(
+                _settings(whisper_tmp_dir, whisper_args=("-ng", "-nt", "-np")),
+                whisper_vad_model_path=self.vad_model,
+            )
             upload = UploadFile(filename="audio.m4a", file=io.BytesIO(b"audio"))
             calls: list[list[str]] = []
 
@@ -96,7 +102,7 @@ class TestWhisperService(unittest.TestCase):
             self.assertEqual(["-l", "ja", "-ng", "-nt", "-np"], whisper_cmd[-5:])
 
     def test_legacy_keeps_filters_and_does_not_require_optional_models(self) -> None:
-        settings = replace(self.settings, whisper_normalize=False,
+        settings = replace(self.settings, whisper_preprocessing="legacy", whisper_normalize=False,
                            whisper_vad_model_path=self.base / "missing-vad.bin",
                            whisper_deepfilter_bin="missing-deep-filter")
         self.assertEqual("transcribed", self.transcribe(settings))
@@ -109,8 +115,8 @@ class TestWhisperService(unittest.TestCase):
         )
         self.assertNotIn("--vad", whisper)
 
-    def test_vad_preserves_audio_without_silence_or_band_filters(self) -> None:
-        settings = self.modern_settings(whisper_deepfilter_bin="missing-deep-filter")
+    def test_default_vad_preserves_audio_without_silence_or_band_filters(self) -> None:
+        settings = replace(self.settings, whisper_deepfilter_bin="missing-deep-filter")
         self.assertEqual("transcribed", self.transcribe(settings))
         conversion, whisper = self.calls
         self.assertNotIn("-af", conversion)

@@ -31,11 +31,11 @@ class TestSettings(unittest.TestCase):
 
         self.assertEqual((), settings.whisper_args)
 
-    def test_preprocessing_defaults_preserve_legacy_behavior(self) -> None:
+    def test_preprocessing_defaults_to_vad_without_normalization(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=True):
             settings = Settings.load()
 
-        self.assertEqual("legacy", settings.whisper_preprocessing)
+        self.assertEqual("vad", settings.whisper_preprocessing)
         self.assertFalse(settings.whisper_normalize)
         self.assertEqual(Path("data/models/ggml-silero-v6.2.0.bin"), settings.whisper_vad_model_path)
         self.assertEqual(0.5, settings.whisper_vad_threshold)

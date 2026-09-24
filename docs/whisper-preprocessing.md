@@ -1,18 +1,18 @@
 # `/whisper` の音声前処理と比較評価
 
-AirPods などの録音について、無音・雑音対策を同じ原音で比較するための機能です。既定は従来の `legacy` のままです。`vad` と `deepfilter` は設定で選択します。API の入力と応答形式 `{"text": "..."}` は変わりません。
+AirPods などの録音について、無音・雑音対策を同じ原音で比較した結果、既定を `vad`・動的な音量調整なしとしました。原音の形式変換とSilero VADのみを適用し、従来の低域・高域カット、動的な音量調整、音量基準の無音除去を通常処理から外します。API の入力と応答形式 `{"text": "..."}` は変わりません。
 
 ## 処理の選択
 
 | `LOCAL_API_WHISPER_PREPROCESSING` | 処理 |
 | --- | --- |
-| `legacy`（既定） | 120 Hz high-pass → 8 kHz low-pass → `dynaudnorm=f=200:g=7` → 音量閾値による `silenceremove` → 16 kHz / mono / PCM s16le → Whisper |
-| `vad` | 16 kHz / mono / PCM s16le → Silero VAD → Whisper |
+| `vad`（既定） | 16 kHz / mono / PCM s16le → Silero VAD → Whisper |
+| `legacy`（比較・切り戻し用） | 120 Hz high-pass → 8 kHz low-pass → `dynaudnorm=f=200:g=7` → 音量閾値による `silenceremove` → 16 kHz / mono / PCM s16le → Whisper |
 | `deepfilter`（実験用） | 48 kHz / mono / PCM s16le → DeepFilterNet3 → 16 kHz 化 → Silero VAD → Whisper |
 
 `vad` / `deepfilter` では既存の `silenceremove` を使わず、whisper.cpp の `--vad` と専用の Silero モデルで発話区間を検出します。VAD は発話区間の検出、DeepFilterNet3 は発話に重なる雑音の抑制を担当します。
 
-`LOCAL_API_WHISPER_NORMALIZE=true` で、`vad` / `deepfilter` に `dynaudnorm=f=200:g=7` を追加できます。既定は `false` です。`deepfilter` の正規化はノイズ抑制後に行います。`legacy` は従来どおり常に正規化するため、この設定では変化しません。
+比較用に `LOCAL_API_WHISPER_NORMALIZE=true` で、`vad` / `deepfilter` に `dynaudnorm=f=200:g=7` を追加できます。採用した既定構成では `false` のまま使用します。`deepfilter` の正規化はノイズ抑制後に行います。`legacy` は従来どおり常に正規化するため、この設定では変化しません。
 
 ここでいう「正規化」は `dynaudnorm` だけを指し、従来の前処理全体やVADの機能を意味しません。従来処理にはそれぞれ別の役割があります。
 
@@ -26,11 +26,11 @@ AirPods などの録音について、無音・雑音対策を同じ原音で比
 
 `dynaudnorm` はファイル全体に一定ゲインを掛ける単純なピークノーマライズではありません。ただし、上記設定では追加のコンプレッサー機能（`compress`）、RMS目標、DC補正は有効にしていません。仕様は [FFmpeg公式ドキュメント](https://ffmpeg.org/ffmpeg-filters.html#dynaudnorm) を参照してください。
 
-`vad` / `deepfilter` は上表の高域・低域カットを使いません。`LOCAL_API_WHISPER_NORMALIZE=true` にしても、この2つのフィルターは復活しません。VADのみを試用候補にしたことは、従来の各処理がすべて不要と確認したことを意味しません。
+`vad` / `deepfilter` は上表の高域・低域カットを使いません。`LOCAL_API_WHISPER_NORMALIZE=true` にしても、この2つのフィルターは復活しません。今回の採用判断は、比較で明確な優位性が確認できない処理を通常構成に含めないという方針です。従来の各処理がすべての録音で不要と証明したことを意味しません。
 
 ノイズを減らして聴きやすくなっても、文字起こしが改善するとは限りません。屋外の風・交通音を含む実録音で、発話の欠落、無音中の余計な出力、処理時間を比較してから使用する設定を決めます。
 
-[2026-09-23〜24の実録音評価](whisper-evaluation.md)では、従来の帯域カットや音量調整を残す追加比較も行い、試用候補を `vad`・動的な音量調整なしとしました。少数の録音での判断であり、各フィルターが常に不要という結論ではありません。DeepFilterNetの追加効果は確認できず、既定は `legacy` を維持しています。
+[2026-09-23〜24の実録音評価](whisper-evaluation.md)とユーザーの最終判断に基づき、`vad`・動的な音量調整なしを採用しました。DeepFilterNetの追加効果も確認できなかったため、通常構成では使いません。
 
 ## 設定
 
@@ -38,7 +38,7 @@ AirPods などの録音について、無音・雑音対策を同じ原音で比
 
 | 環境変数 | 既定値 |
 | --- | --- |
-| `LOCAL_API_WHISPER_PREPROCESSING` | `legacy` |
+| `LOCAL_API_WHISPER_PREPROCESSING` | `vad` |
 | `LOCAL_API_WHISPER_NORMALIZE` | `false` |
 | `LOCAL_API_WHISPER_VAD_MODEL_PATH` | `data/models/ggml-silero-v6.2.0.bin` |
 | `LOCAL_API_WHISPER_VAD_THRESHOLD` | `0.5` |
@@ -51,10 +51,11 @@ AirPods などの録音について、無音・雑音対策を同じ原音で比
 
 VAD の最短発話時間を上げすぎると短い返事を除外しやすくなり、余白を小さくすると語頭・語尾が切れやすくなります。上記は比較開始用の値です。DeepFilterNet の抑制上限は `0.01` dB 以上の有限値を指定します。小さい値ほど原音を多く残します。追加の post-filter は使用しません。
 
-例: VAD を有効にして起動します。
+例: 採用構成を明示して起動します（どちらも既定値です）。
 
 ```sh
-LOCAL_API_WHISPER_PREPROCESSING=vad uv run uvicorn app.main:app --host 0.0.0.0 --port 5050
+LOCAL_API_WHISPER_PREPROCESSING=vad LOCAL_API_WHISPER_NORMALIZE=false \
+  uv run uvicorn app.main:app --host 0.0.0.0 --port 5050
 ```
 
 `LOCAL_API_WHISPER_PREPROCESSING=legacy` に戻すと従来の処理になります。選択した処理に必要なモデルや実行ファイルがない場合はエラーになります。
@@ -63,7 +64,7 @@ LOCAL_API_WHISPER_PREPROCESSING=vad uv run uvicorn app.main:app --host 0.0.0.0 -
 
 ## モデル・実行ファイルの準備
 
-既存の FFmpeg、Whisper モデルと、`--vad` に対応した `whisper-cli` を使用します。以下はリポジトリルートで実行する取得例です。API はモデルの自動取得や依存パッケージのインストールを行いません。
+既存の FFmpeg、Whisper モデルと、`--vad` に対応した `whisper-cli` を使用します。既定構成でもSilero VADモデルが必要です。以下はリポジトリルートで実行する取得例です。API はモデルの自動取得や依存パッケージのインストールを行いません。
 
 Silero VAD v6.2.0 の取得先は [whisper.cpp 公式の取得スクリプト](https://github.com/ggml-org/whisper.cpp/blob/master/models/download-vad-model.sh)で使用している `ggml-org/whisper-vad` です。
 
