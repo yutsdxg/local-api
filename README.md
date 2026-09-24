@@ -8,14 +8,16 @@ Whisper 文字起こし・yt-dlp 音声抽出・Obsidian エクスポートを�
 - `whisper-cli`（例: `brew install whisper-cpp`）
 - `ffmpeg`
 - `yt-dlp`
-- モデルファイル（デフォルト: `model/ggml-medium.bin`）
+- Whisperモデルファイル
+- Silero VADモデル（既定: `data/models/ggml-silero-v6.2.0.bin`）
 
-Python 3.10 と `.venv` は `uv` が `.python-version` と `pyproject.toml` をもとに用意します。
+Python 3.14 と `.venv` は `uv` が `.python-version` と `pyproject.toml` をもとに用意します。
 
 ## 事前準備
 
 - 一時/出力ディレクトリを作成: `mkdir -p data/tmp/whisper data/tmp/yt-dlp logs`
-- Whisper 用モデルを `model/` 配下に配置（例: `model/ggml-medium.bin`）。
+- Whisper用モデルを配置し、`LOCAL_API_WHISPER_MODEL_PATH` にそのパスを設定します。
+- [Whisper前処理の導入手順](docs/whisper-preprocessing.md) に従ってSilero VADモデルを配置します。
 - パスを変えたい場合は環境変数で上書きします（`## 環境変数` を参照）。
 - Whisper はデフォルトで `-ng -nt -np` を付けて CPU モードで実行します。Metal/GPU 経路を試す場合は `LOCAL_API_WHISPER_ARGS=""` を設定してください。
 
@@ -25,7 +27,7 @@ Python 3.10 と `.venv` は `uv` が `.python-version` と `pyproject.toml` を�
 uv sync
 ```
 
-`uv sync` は `.venv` の作成、Python 3.10 の準備、依存パッケージのインストールをまとめて行います。
+`uv sync` は `.venv` の作成、Python 3.14 の準備、依存パッケージのインストールをまとめて行います。
 
 ## 起動方法
 
@@ -56,6 +58,12 @@ uv run python -m unittest discover -s tests
 curl -X POST "http://localhost:5050/whisper" \
   -F "file=@/path/to/audio.m4a"
 ```
+
+既定の前処理は `vad` です。原音を16 kHz / mono / PCM s16leへ変換し、Sileroで発話区間を検出してWhisperへ渡します。従来の低域・高域カット、動的な音量調整、音量基準の無音除去は適用しません。Silero VADモデルの準備が必要です。VADで発話が検出されない場合は `{"text": ""}` を返します。
+
+比較・切り戻し用に `LOCAL_API_WHISPER_PREPROCESSING=legacy`、実験用に `deepfilter`（DeepFilterNet3によるノイズ除去＋VAD）も選択できます。
+
+導入・設定・同一音声での比較方法は [Whisper前処理](docs/whisper-preprocessing.md) を参照してください。
 
 ### 2. YouTube 音声抽出
 
@@ -145,6 +153,9 @@ curl -X POST "http://localhost:5050/obsidian/exports/google-docs" --get \
 | `LOCAL_API_WHISPER_BIN` | `/opt/homebrew/.../whisper-cli` | whisper-cli のパス |
 | `LOCAL_API_WHISPER_MODEL_PATH` | `/Users/.../ggml-medium.bin` | モデルファイル |
 | `LOCAL_API_WHISPER_ARGS` | `-ng -nt -np` | whisper-cli 追加引数。デフォルトは CPU 安定運用用。空文字で追加引数なし |
+| `LOCAL_API_WHISPER_PREPROCESSING` | `vad` | `vad` / `legacy` / `deepfilter`。既定は形式変換とVADのみ |
+| `LOCAL_API_WHISPER_NORMALIZE` | `false` | 比較用の動的な音量調整。採用構成では無効。`legacy` は従来の調整を維持 |
+| `LOCAL_API_WHISPER_VAD_MODEL_PATH` | `data/models/ggml-silero-v6.2.0.bin` | Silero VADモデル。詳細な閾値・DeepFilterNet設定は前処理ドキュメントを参照 |
 | `LOCAL_API_WHISPER_TMP_DIR` | `data/tmp` | Whisper 一時ディレクトリ |
 | `LOCAL_API_FFMPEG_BIN` | `ffmpeg` | ffmpeg コマンド |
 | `LOCAL_API_YTDLP_BIN` | `yt-dlp` | yt-dlp コマンド |
