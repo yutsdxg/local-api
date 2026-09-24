@@ -5,6 +5,7 @@ import io
 import shutil
 import struct
 import subprocess
+import threading
 import unittest
 import wave
 from dataclasses import replace
@@ -246,6 +247,118 @@ class TestWhisperService(unittest.TestCase):
         self.assertEqual("transcribed", self.transcribe(self.deepfilter_settings(
             whisper_deepfilter_attenuation_limit_db=0.01
         )))
+
+    def test_blocking_preparation_allows_event_loop_to_progress(self) -> None:
+        release = threading.Event()
+
+        async def scenario() -> None:
+            entered = asyncio.Event()
+            loop = asyncio.get_running_loop()
+            event_loop_thread = threading.get_ident()
+
+            def block_preparation(*args: object) -> None:
+                self.assertNotEqual(event_loop_thread, threading.get_ident())
+                loop.call_soon_threadsafe(entered.set)
+                if not release.wait(5):
+                    raise AssertionError("The event loop did not release preparation.")
+                _write_wav(args[1], 160)
+
+            upload = UploadFile(filename="audio.wav", file=io.BytesIO(b"audio"))
+            with mock.patch.object(whisper_service, "_prepare_audio", side_effect=block_preparation), \
+                    mock.patch.object(whisper_service.subprocess, "run", side_effect=self.fake_run):
+                task = asyncio.create_task(whisper_service.transcribe_upload(upload, self.settings))
+                try:
+                    await asyncio.wait_for(entered.wait(), timeout=5)
+                    self.assertFalse(task.done())
+                finally:
+                    release.set()
+                    await asyncio.gather(task, return_exceptions=True)
+                self.assertEqual("transcribed", task.result())
+
+        asyncio.run(scenario())
+
+    def test_concurrent_requests_execute_one_heavy_pipeline_at_a_time(self) -> None:
+        release = threading.Event()
+        real_lock = threading.Lock()
+        entered_payloads = []
+
+        async def scenario() -> None:
+            first_entered = asyncio.Event()
+            second_waiting = asyncio.Event()
+            loop = asyncio.get_running_loop()
+
+            class ObservedLock:
+                def __enter__(self) -> None:
+                    if not real_lock.acquire(blocking=False):
+                        loop.call_soon_threadsafe(second_waiting.set)
+                        real_lock.acquire()
+
+                def __exit__(self, *args: object) -> None:
+                    real_lock.release()
+
+            def heavy(audio: bytes, *args: object) -> str:
+                entered_payloads.append(audio)
+                if audio == b"first":
+                    loop.call_soon_threadsafe(first_entered.set)
+                    if not release.wait(5):
+                        raise AssertionError("First pipeline was not released.")
+                return audio.decode()
+
+            with mock.patch.object(whisper_service, "_TRANSCRIPTION_LOCK", ObservedLock()), \
+                    mock.patch.object(whisper_service, "_transcribe_audio", side_effect=heavy):
+                first = asyncio.create_task(whisper_service.transcribe_upload(
+                    UploadFile(file=io.BytesIO(b"first")), self.settings))
+                tasks = [first]
+                try:
+                    await asyncio.wait_for(first_entered.wait(), timeout=5)
+                    tasks.append(asyncio.create_task(whisper_service.transcribe_upload(
+                        UploadFile(file=io.BytesIO(b"second")), self.settings)))
+                    await asyncio.wait_for(second_waiting.wait(), timeout=5)
+                    self.assertEqual([b"first"], entered_payloads)
+                finally:
+                    release.set()
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                self.assertEqual(["first", "second"], results)
+
+        asyncio.run(scenario())
+
+    def test_cancelled_request_keeps_temporary_files_until_worker_finishes(self) -> None:
+        release = threading.Event()
+        captured_inputs = []
+
+        async def scenario() -> None:
+            entered = asyncio.Event()
+            loop = asyncio.get_running_loop()
+
+            def block_preparation(source: Path, destination: Path, *args: object) -> None:
+                captured_inputs.append(source)
+                loop.call_soon_threadsafe(entered.set)
+                if not release.wait(5):
+                    raise AssertionError("Cancelled request's worker was not released.")
+                self.assertTrue(source.is_file())
+                _write_wav(destination, 160)
+
+            with mock.patch.object(whisper_service, "_prepare_audio", side_effect=block_preparation), \
+                    mock.patch.object(whisper_service.subprocess, "run", side_effect=self.fake_run):
+                task = asyncio.create_task(whisper_service.transcribe_upload(
+                    UploadFile(file=io.BytesIO(b"audio")), self.settings))
+                try:
+                    await asyncio.wait_for(entered.wait(), timeout=5)
+                    task.cancel()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await task
+                    self.assertTrue(captured_inputs[0].is_file())
+                    self.assertTrue(whisper_service._TRANSCRIPTION_LOCK.locked())
+                finally:
+                    release.set()
+                    # Cancellation only detaches the await. Keep the mocks alive
+                    # until the worker exits and cleans up its temporary files.
+                    await loop.shutdown_default_executor()
+
+        asyncio.run(scenario())
+        self.assertFalse(captured_inputs[0].parent.exists())
+        self.assertFalse(whisper_service._TRANSCRIPTION_LOCK.locked())
+        self.assertEqual(1, len(list(self.archive.glob("whisper_output_*.txt"))))
 
     def test_whisper_endpoint_response_contract_is_unchanged(self) -> None:
         upload = mock.Mock(spec=UploadFile)
