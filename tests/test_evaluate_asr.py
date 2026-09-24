@@ -103,6 +103,26 @@ class TestEvaluateASR(unittest.TestCase):
         self.assertIsNone(result["cer"])
         self.assertGreater(result["edit_distance"], 0)
 
+    def test_sentence_diagnostics_find_repetition_within_one_line(self) -> None:
+        text = "確認します。確認します。確認します。終了します。確認します。"
+        result = evaluate_asr.metrics(text, None)
+        self.assertEqual(0, result["adjacent_duplicate_lines"])
+        self.assertEqual(5, result["sentence_count"])
+        self.assertEqual(4, result["max_sentence_occurrences"])
+        self.assertEqual(3, result["max_consecutive_sentence_occurrences"])
+        self.assertNotIn("cer", result)
+        self.assertTrue(all(isinstance(value, int) for value in result.values()))
+
+    def test_sentence_diagnostics_preserve_decimal_values_and_handle_empty_input(self) -> None:
+        result = evaluate_asr.metrics("１２．５万円です。\n12.5万円です！125万円です？", None)
+        self.assertEqual(3, result["sentence_count"])
+        self.assertEqual(2, result["max_sentence_occurrences"])
+        self.assertEqual(2, result["max_consecutive_sentence_occurrences"])
+        empty = evaluate_asr.metrics(" \n。！？", None)
+        for key in ("sentence_count", "max_sentence_occurrences",
+                    "max_consecutive_sentence_occurrences"):
+            self.assertEqual(0, empty[key])
+
     def test_common_vad_requires_manifest_before_starting_cli(self) -> None:
         condition = {**self.cpp_condition(self.model), "vad_mode": "common-silero",
                      "input_key": "speech_audio"}
@@ -330,6 +350,22 @@ class TestEvaluateASR(unittest.TestCase):
                 self.assertEqual(2, code)
                 self.assertFalse(output.exists())
                 self.assertIsNone(report)
+
+
+    def test_interrupted_cli_is_killed_and_reaped_before_interrupt_propagates(self) -> None:
+        for error in (KeyboardInterrupt(), RuntimeError("wait failed")):
+            with self.subTest(error=type(error).__name__):
+                process = mock.Mock()
+                process.pid = 123456
+                process.poll.return_value = None
+                process.wait.side_effect = [error, -signal.SIGKILL]
+                with mock.patch.object(evaluate_asr.subprocess, "Popen", return_value=process), \
+                        mock.patch.object(evaluate_asr.os, "killpg") as kill:
+                    with self.assertRaises(type(error)) as raised:
+                        evaluate_asr.run_cpp(self.cpp_condition(self.model), self.case(), self.base, 1)
+                self.assertIs(error, raised.exception)
+                kill.assert_called_once_with(process.pid, signal.SIGKILL)
+                self.assertEqual([mock.call(timeout=1), mock.call()], process.wait.call_args_list)
 
 
 if __name__ == "__main__":

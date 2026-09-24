@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import platform
 import queue
@@ -19,6 +20,8 @@ import threading
 import time
 import unicodedata
 import wave
+from collections import Counter
+from itertools import groupby
 from pathlib import Path
 
 
@@ -67,8 +70,15 @@ def edit_distance(reference: str, hypothesis: str) -> int:
 
 def metrics(text: str, reference: dict | None) -> dict:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
+    # Heuristic sentence boundaries include Japanese stops and !/?, not decimal
+    # points. Real speech can repeat too: these counts diagnose output, not accuracy.
+    sentences = [part for part in re.split(r"[。!?]+", normalized(text)) if part]
     result = {"characters": len(text), "nonempty_lines": len(lines),
-              "adjacent_duplicate_lines": sum(a == b for a, b in zip(lines, lines[1:]))}
+              "adjacent_duplicate_lines": sum(a == b for a, b in zip(lines, lines[1:])),
+              "sentence_count": len(sentences),
+              "max_sentence_occurrences": max(Counter(sentences).values(), default=0),
+              "max_consecutive_sentence_occurrences": max(
+                  (sum(1 for _ in group) for _, group in groupby(sentences)), default=0)}
     if reference and reference.get("human_verified") is True:
         path = Path(reference["path"]).resolve(strict=True)
         truth = normalized(path.read_text(encoding="utf-8"))
@@ -115,6 +125,11 @@ def run_cpp(condition: dict, case: dict, output: Path, timeout: float) -> dict:
         except subprocess.TimeoutExpired:
             terminate(process)
             raise TimeoutError(f"ASR exceeded {timeout}s; see {log}")
+        except BaseException:
+            # The child has its own session, so interrupting this runner does
+            # not interrupt ASR. Reap it before another evaluation can start.
+            terminate(process)
+            raise
     elapsed = time.monotonic() - started
     if code:
         raise RuntimeError(f"ASR exit {code}; see {log}")
@@ -198,7 +213,7 @@ class Worker:
 def fingerprint(path: str) -> dict:
     candidate = Path(path).resolve(strict=True)
     files = [candidate] if candidate.is_file() else sorted(
-        p for p in candidate.rglob("*") if p.is_file() and ".cache" not in p.parts)
+        p for p in candidate.rglob("*") if p.is_file() and ".cache" not in p.relative_to(candidate).parts)
     return {"path": str(candidate), "files": [
         {"path": str(p.relative_to(candidate)) if candidate.is_dir() else p.name,
          "size": p.stat().st_size, "sha256": digest(p)} for p in files]}
@@ -213,13 +228,16 @@ def main():
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--timeout", type=float, default=1200)
     args = parser.parse_args()
-    if args.repeat < 1 or args.timeout <= 0:
-        parser.error("repeat and timeout must be positive")
+    if args.repeat < 1 or not math.isfinite(args.timeout) or args.timeout <= 0:
+        parser.error("repeat and timeout must be positive and finite")
     manifest = json.loads(args.manifest.read_text())
     for key in ("conditions", "cases"):
         names = [item["name"] for item in manifest[key]]
         if len(set(names)) != len(names):
             parser.error(f"duplicate {key} names are not allowed")
+    for selected, key in ((args.only, "conditions"), (args.cases, "cases")):
+        if selected and set(selected) - {item["name"] for item in manifest[key]}:
+            parser.error(f"unknown {key} requested")
     conditions = [c for c in manifest["conditions"] if not args.only or c["name"] in args.only]
     cases = [c for c in manifest["cases"] if not args.cases or c["name"] in args.cases]
     if not conditions or not cases:

@@ -54,7 +54,7 @@ def main():
                           max_workers=4, token=False)
         records = []
         for path in sorted(destination.rglob("*")):
-            if not path.is_file() or ".cache" in path.parts or path.name == "download-provenance.json":
+            if not path.is_file() or ".cache" in path.relative_to(destination).parts or path.name == "download-provenance.json":
                 continue
             with path.open("rb") as stream:
                 sha256 = hashlib.file_digest(stream, "sha256").hexdigest()

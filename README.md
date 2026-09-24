@@ -65,6 +65,10 @@ curl -X POST "http://localhost:5050/whisper" \
 
 導入・設定・同一音声での比較方法は [Whisper前処理](docs/whisper-preprocessing.md) を参照してください。
 
+認識モデル・CPU/Metal・MLX系ライブラリの比較は [認識工程の評価手順](docs/asr-recognition.md) と [実測結果](docs/asr-recognition-results.md) を参照してください。評価用の依存とモデルはAPI本体から分離して配置します。
+
+文字起こしの重い処理はAPIのイベントループ外で実行し、同一プロセス内では1件ずつ処理します。複数のUvicornワーカーを起動すると、この直列化はワーカーごとになります。開始済みの処理はリクエストのキャンセル後も完了まで継続します。
+
 ### 2. YouTube 音声抽出
 
 - URL: `POST /yt-dlp/audio`
