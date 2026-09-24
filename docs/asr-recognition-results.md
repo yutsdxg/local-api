@@ -2,6 +2,8 @@
 
 [Issue #13](https://github.com/yutsdxg/local-api/issues/13) / [PR #14](https://github.com/yutsdxg/local-api/pull/14) の実測記録。セットアップ、モデルrevision、測定範囲は [評価手順](asr-recognition.md) を参照する。個人音声・文字起こし・詳細manifestはGit対象外の `data/asr/evaluation/` に保存する。
 
+**精度を最優先にした調査対象全体の判断は、[精度重視の全体評価](asr-accuracy-assessment.md)を参照。** 本書のParakeetに関する推奨は速度・メモリ面の評価であり、精度優先の主候補はMLX large-v3とcpp large-v3のgreedy・履歴なし設定へ整理し直した。
+
 ## 実装と採用判断
 
 APIの重い変換・認識処理をイベントループの外へ移し、同じAPIプロセス内では1件ずつ実行する。文字起こし中も他の非同期処理が進み、同時要求によるモデルの重複ロードを防ぐ。開始済みの処理は要求キャンセル後もロックと一時ファイルを保持して完了する。複数のUvicornプロセスにまたがる排他や、実行中の子プロセス中断は実装していない。
@@ -80,7 +82,9 @@ Parakeetを `options: {"chunk_duration": 60.0}` にした別条件では、全�
 
 雨全文の追加確認ではlarge-v3のtimestampを有効にしたbeam 5条件でも進捗出力の反復が続いたため、当該評価プロセスを手動停止した。これは品質の一次確認による打切りであり、エンジンの自然な異常終了や、全文処理時間の測定結果として扱わない。`rain-diagnostics/manual-stop.json` に理由、途中ログを保存した。このrunはreport上でexit -15のerrorとして残る。
 
-同じ雨全文でlarge-v3のgreedy・履歴なし（`-bs 1 -bo 1 -mc 0`、timestamp有効）は66.39秒、turbo・beam 5・timestamp有効は53.28秒で完了した。こちらの保存出力には同じ長い反復列が見当たらなかった。大モデルの一律採用や `-nt`解除だけの採用を避け、履歴・探索条件まで含めて評価する必要がある。追加条件は雨全文1本での確認であり、全録音に対する解消を保証しない。
+同じ雨全文でlarge-v3のgreedy・履歴なし（`-bs 1 -bo 1 -mc 0`、timestamp有効）は66.39秒、turbo・beam 5・timestamp有効は53.28秒で完了した。こちらの保存出力には同じ長い反復列が見当たらなかった。大モデルの一律採用や `-nt`解除だけの採用を避け、履歴・探索条件まで含めて評価する必要がある。その後、両条件について通常・長い間の全文も追加確認し、いずれも完了した。各3本を通じて同様の反復列は見当たらなかったが、他の録音も含む解消を保証するものではない。
+
+追加の通常・長い間の全文は、cpp large-v3のgreedy・履歴なしで15.46 / 31.52秒、turboで9.75 / 21.50秒だった。共通VAD後の入力を使い、CLI起動とモデル読み込みを含む。認識内容は[精度重視の全体評価](asr-accuracy-assessment.md)へまとめた。
 
 MLX Whisper、Qwen、日本語Parakeetも3本ずつ全文処理を完了した。これらの出力では同じ種類の句点区切りの連続文反復を検出しなかったが、Parakeetの出力には句点が少なく、この指標の検出力も限られる。Qwenの生成数は全文で325 / 1225 / 686 tokensとなり、設定上限8192には達していない。数字や言い回しのモデル間差は残っており、読みやすさや文字数の増加を正解率の向上とは扱わない。
 
@@ -107,6 +111,7 @@ MLX Whisper、Qwen、日本語Parakeetも3本ずつ全文処理を完了した�
 | `rain-diagnostics` | 雨全文のtimestamp有効・greedy履歴なし・turboの追加確認。手動打切り1件を含む |
 | `smoke` | 共通VADと空入力・無音・雑音・極短音・短い発話の確認 |
 | `parakeet-chunk60` | 日本語Parakeetの全文を60秒分割し、一括処理の時間・メモリ・出力と比較 |
+| `accuracy-full-completion` | cpp large-v3のgreedy・履歴なしとturboで、通常・長い間の全文を追加確認 |
 
 反復診断追加前の結果は元reportを上書きせず、保存TXTから再計算した値を `diagnostics.json` に記録した。比較用の原音抜粋と文字起こしをまとめた `review.md` もローカルに保存した。
 
