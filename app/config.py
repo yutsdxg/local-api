@@ -90,12 +90,12 @@ class Settings(BaseSettings):
 
         return cls(
             whisper_bin=cls._env(
-                "WHISPER_BIN", "/Users/yuts/Data/Dev/whisper.cpp/build/bin/whisper-cli"
+                "WHISPER_BIN", "data/asr/vendor/whisper.cpp-v1.9.4/build/bin/whisper-cli"
             ),
             whisper_model_path=cls._env(
-                "WHISPER_MODEL_PATH", "/Users/yuts/Data/Dev/whisper.cpp/models/ggml-medium.bin"
+                "WHISPER_MODEL_PATH", "data/asr/models/whisper-ggml/ggml-large-v3.bin"
             ),
-            whisper_args=cls._split_args("WHISPER_ARGS", "-ng -nt -np"),
+            whisper_args=cls._split_args("WHISPER_ARGS", "-np -t 4 -bs 1 -bo 1 -mc 0"),
             ffmpeg_bin=cls._env("FFMPEG_BIN", "ffmpeg"),
             whisper_tmp_dir=Path(cls._env("WHISPER_TMP_DIR", "data/tmp/whisper")),
             ytdlp_bin=cls._env("YTDLP_BIN", "yt-dlp"),

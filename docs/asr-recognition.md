@@ -1,8 +1,36 @@
 # `/whisper` の認識工程を比較する
 
-[Issue #13](https://github.com/yutsdxg/local-api/issues/13) では、前処理の比較に続き、実際に文字起こしする認識工程を評価する。現行の `whisper.cpp` と `medium` を基準に、CPU / Metal、デコード設定、モデル、MLX系ライブラリの違いを切り分ける。日本語の独話、AirPodsによる屋外録音、長い間を含む音声が主な対象になる。
+[Issue #13](https://github.com/yutsdxg/local-api/issues/13) では、前処理の比較に続き、実際に文字起こしする認識工程を評価する。従来の `whisper.cpp` と `medium` を基準に、CPU / Metal、デコード設定、モデル、MLX系ライブラリの違いを切り分ける。日本語の独話、AirPodsによる屋外録音、長い間を含む音声が主な対象になる。
 
-これはローカル評価用の導入文書であり、実測と採用判断は [認識工程の評価結果](asr-recognition-results.md) にまとめる。`/whisper` の既定モデル `medium`、API契約、本番依存関係はこの評価ツールでは変更しない。前処理の採用経緯は [前処理の評価記録](whisper-evaluation.md)、運用設定は [前処理の説明](whisper-preprocessing.md) を参照する。
+実測と採用判断は [認識工程の評価結果](asr-recognition-results.md) にまとめる。2026-10-07のユーザー指示により、`/whisper` の既定をwhisper.cpp large-v3・Metal・greedy・履歴なしへ変更した。前処理の採用経緯は [前処理の評価記録](whisper-evaluation.md)、運用設定は [前処理の説明](whisper-preprocessing.md) を参照する。
+
+## 採用構成と切り戻し
+
+サーバーをリポジトリルートから起動する。以下の資材は自動取得されないため、初回は後述のモデル取得とwhisper.cppビルドを行う。評価に使用した資材をそのまま採用し、既存の旧版・mediumモデルは残す。
+
+| 項目 | 既定値 |
+| --- | --- |
+| 実行ファイル | `data/asr/vendor/whisper.cpp-v1.9.4/build/bin/whisper-cli` |
+| モデル | `data/asr/models/whisper-ggml/ggml-large-v3.bin` |
+| 追加引数 | `-np -t 4 -bs 1 -bo 1 -mc 0` |
+| 前処理 | 16 kHz / mono / PCM16への変換と内部Silero VAD、追加フィルターなし |
+
+`-bs 1 -bo 1` はgreedyでの認識、`-mc 0` は前の認識テキストを文脈として渡さない設定。`-ng` を付けずMetalを使い、`-nt` を付けずtimestampのデコードを有効にする。timestampは認識処理の条件であり、API応答は従来の `{"text":"..."}` のまま。モデルは要求ごとにCLIで読み込み、終了時に解放する。
+
+```sh
+uv run uvicorn app.main:app --host 0.0.0.0 --port 5050
+```
+
+既存の起動環境に `LOCAL_API_WHISPER_BIN`、`LOCAL_API_WHISPER_MODEL_PATH`、`LOCAL_API_WHISPER_ARGS` が設定されている場合は、その値が優先される。採用構成へ切り替える際は値を更新するか解除してから再起動する。
+
+旧medium/CPUへ戻す場合は、保存している旧バイナリとモデルのパスを指定して再起動する。`WHISPER_ARGS` だけを戻すとlarge-v3をCPUで実行するため、3項目をまとめて切り替える。
+
+```sh
+LOCAL_API_WHISPER_BIN=/absolute/path/to/old-whisper-cli \
+LOCAL_API_WHISPER_MODEL_PATH=/absolute/path/to/ggml-medium.bin \
+LOCAL_API_WHISPER_ARGS='-ng -nt -np' \
+  uv run uvicorn app.main:app --host 0.0.0.0 --port 5050
+```
 
 ## 評価環境
 
@@ -74,7 +102,7 @@ data/asr/venv/bin/python scripts/download_asr_models.py \
 
 ## 比較用whisper.cppを隔離してビルドする
 
-既存の本番whisper.cppを更新せず、比較対象を `data/asr/vendor/whisper.cpp-v1.9.4` に置く。今回の対象はタグ `v1.9.4`、commit `927cfce34f31707e17f2bff35c349632fb9e2c3a`。このcheckoutのCLI表示は `whisper.cpp version: 1.9.4-dev` なので、表示文字列だけで版を同定せずcommitも記録する。
+旧版whisper.cppを保存し、比較・採用対象を `data/asr/vendor/whisper.cpp-v1.9.4` に置く。今回の対象はタグ `v1.9.4`、commit `927cfce34f31707e17f2bff35c349632fb9e2c3a`。このcheckoutのCLI表示は `whisper.cpp version: 1.9.4-dev` なので、表示文字列だけで版を同定せずcommitも記録する。
 
 Git、CMake、macOS用C/C++ビルド環境を準備したうえで、新しい保存先へ次のように取得する。既に同じcheckoutがある場合はcloneを繰り返さず、commitとビルド設定を確認する。
 
@@ -284,4 +312,4 @@ CERは参照・仮説の両方にNFKCを適用し、空白文字だけを除去�
   tests.test_evaluate_asr
 ```
 
-実録音での結果と採用判断は、入力・モデル・設定のハッシュと上記の制限を伴って記録する。本書の手順や依存スナップショットの追加だけを根拠に、既定のmediumを別モデルへ切り替えない。
+実録音での結果と採用判断は、入力・モデル・設定のハッシュと上記の制限を伴って記録する。既定のlarge-v3・greedy・履歴なしは実測比較とユーザーの採用指示に基づく。評価ツールの追加だけを根拠に、別モデルや設定へ切り替えない。

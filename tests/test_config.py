@@ -9,11 +9,19 @@ from app.config import Settings
 
 
 class TestSettings(unittest.TestCase):
-    def test_whisper_args_default_to_cpu_stable_flags(self) -> None:
+    def test_whisper_defaults_to_evaluated_large_v3_configuration(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=True):
             settings = Settings.load()
 
-        self.assertEqual(("-ng", "-nt", "-np"), settings.whisper_args)
+        self.assertEqual(
+            "data/asr/vendor/whisper.cpp-v1.9.4/build/bin/whisper-cli", settings.whisper_bin
+        )
+        self.assertEqual(
+            "data/asr/models/whisper-ggml/ggml-large-v3.bin", settings.whisper_model_path
+        )
+        self.assertEqual(
+            ("-np", "-t", "4", "-bs", "1", "-bo", "1", "-mc", "0"), settings.whisper_args
+        )
 
     def test_whisper_args_are_parsed_with_shell_quoting(self) -> None:
         with mock.patch.dict(
