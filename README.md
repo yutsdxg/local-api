@@ -5,10 +5,10 @@ Whisper 文字起こし・yt-dlp 音声抽出・Obsidian エクスポートを�
 ## 前提条件
 
 - `uv`（例: `brew install uv`）
-- `whisper-cli`（例: `brew install whisper-cpp`）
+- `whisper-cli`（採用版: whisper.cpp v1.9.4、Metal有効。準備は[認識工程の導入手順](docs/asr-recognition.md)を参照）
 - `ffmpeg`
 - `yt-dlp`
-- Whisperモデルファイル
+- Whisper large-v3モデル（GGML）
 - Silero VADモデル（既定: `data/models/ggml-silero-v6.2.0.bin`）
 
 Python 3.14 と `.venv` は `uv` が `.python-version` と `pyproject.toml` をもとに用意します。
@@ -16,10 +16,10 @@ Python 3.14 と `.venv` は `uv` が `.python-version` と `pyproject.toml` を�
 ## 事前準備
 
 - 一時/出力ディレクトリを作成: `mkdir -p data/tmp/whisper data/tmp/yt-dlp logs`
-- Whisper用モデルを配置し、`LOCAL_API_WHISPER_MODEL_PATH` にそのパスを設定します。
+- [認識工程の導入手順](docs/asr-recognition.md)に従って、評価済みwhisper.cppとlarge-v3モデルを既定のパスへ配置します。配置先を変える場合は `LOCAL_API_WHISPER_BIN` と `LOCAL_API_WHISPER_MODEL_PATH` を設定します。
 - [Whisper前処理の導入手順](docs/whisper-preprocessing.md) に従ってSilero VADモデルを配置します。
 - パスを変えたい場合は環境変数で上書きします（`## 環境変数` を参照）。
-- Whisper はデフォルトで `-ng -nt -np` を付けて CPU モードで実行します。Metal/GPU 経路を試す場合は `LOCAL_API_WHISPER_ARGS=""` を設定してください。
+- Whisperは既定でMetal・greedy・履歴なし（`-np -t 4 -bs 1 -bo 1 -mc 0`）を使用します。timestampのデコードは有効です。`LOCAL_API_WHISPER_ARGS` を設定すると、この引数全体を置き換えます。
 
 ## セットアップ
 
@@ -64,6 +64,12 @@ curl -X POST "http://localhost:5050/whisper" \
 比較・切り戻し用に `LOCAL_API_WHISPER_PREPROCESSING=legacy`、実験用に `deepfilter`（DeepFilterNet3によるノイズ除去＋VAD）も選択できます。
 
 導入・設定・同一音声での比較方法は [Whisper前処理](docs/whisper-preprocessing.md) を参照してください。
+
+認識はwhisper.cpp large-v3・greedy・履歴なしを既定とします。旧medium/CPUへの切り戻し方法は[採用構成と切り戻し](docs/asr-recognition.md#採用構成と切り戻し)を参照してください。
+
+認識モデル・CPU/Metal・MLX系ライブラリの比較は [精度重視の全体評価](docs/asr-accuracy-assessment.md)、[実測結果](docs/asr-recognition-results.md)、[評価手順](docs/asr-recognition.md) を参照してください。評価用の依存とモデルはAPI本体から分離して配置します。
+
+文字起こしの重い処理はAPIのイベントループ外で実行し、同一プロセス内では1件ずつ処理します。複数のUvicornワーカーを起動すると、この直列化はワーカーごとになります。開始済みの処理はリクエストのキャンセル後も完了まで継続します。
 
 ### 2. YouTube 音声抽出
 
@@ -150,9 +156,9 @@ curl -X POST "http://localhost:5050/obsidian/exports/google-docs" --get \
 
 | 変数名 | デフォルト | 説明 |
 | --- | --- | --- |
-| `LOCAL_API_WHISPER_BIN` | `/opt/homebrew/.../whisper-cli` | whisper-cli のパス |
-| `LOCAL_API_WHISPER_MODEL_PATH` | `/Users/.../ggml-medium.bin` | モデルファイル |
-| `LOCAL_API_WHISPER_ARGS` | `-ng -nt -np` | whisper-cli 追加引数。デフォルトは CPU 安定運用用。空文字で追加引数なし |
+| `LOCAL_API_WHISPER_BIN` | `data/asr/vendor/whisper.cpp-v1.9.4/build/bin/whisper-cli` | 評価済みwhisper-cliのパス |
+| `LOCAL_API_WHISPER_MODEL_PATH` | `data/asr/models/whisper-ggml/ggml-large-v3.bin` | large-v3モデルファイル |
+| `LOCAL_API_WHISPER_ARGS` | `-np -t 4 -bs 1 -bo 1 -mc 0` | Metal・greedy・履歴なし。空文字は追加引数なしとなり、認識条件も変わる |
 | `LOCAL_API_WHISPER_PREPROCESSING` | `vad` | `vad` / `legacy` / `deepfilter`。既定は形式変換とVADのみ |
 | `LOCAL_API_WHISPER_NORMALIZE` | `false` | 比較用の動的な音量調整。採用構成では無効。`legacy` は従来の調整を維持 |
 | `LOCAL_API_WHISPER_VAD_MODEL_PATH` | `data/models/ggml-silero-v6.2.0.bin` | Silero VADモデル。詳細な閾値・DeepFilterNet設定は前処理ドキュメントを参照 |

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import math
 import shutil
 import subprocess
 import tempfile
+import threading
 import uuid
 import wave
 from pathlib import Path
@@ -26,6 +28,7 @@ LEGACY_AUDIO_FILTERS = (
     "stop_threshold=-50dB"
 )
 NORMALIZE_AUDIO_FILTER = "dynaudnorm=f=200:g=7"
+_TRANSCRIPTION_LOCK = threading.Lock()
 
 
 async def transcribe_upload(
@@ -33,9 +36,23 @@ async def transcribe_upload(
     settings: Settings,
     language: str = "ja",
 ) -> str:
-    """
-    Convert an uploaded audio file into text using whisper-cli.
-    """
+    """Read the upload, then run the blocking pipeline outside the event loop."""
+    audio = await file.read()
+    return await asyncio.to_thread(_transcribe_serialized, audio, settings, language)
+
+
+def _transcribe_serialized(audio: bytes, settings: Settings, language: str) -> str:
+    # This lock serializes the full pipeline within one API process, including
+    # requests submitted from different event loops. Separate server processes
+    # have separate locks. Once this worker starts, cancelling the await (for
+    # example on client disconnect) does not stop its thread or subprocesses.
+    # The worker therefore owns the lock and temporary files until completion.
+    with _TRANSCRIPTION_LOCK:
+        return _transcribe_audio(audio, settings, language)
+
+
+def _transcribe_audio(audio: bytes, settings: Settings, language: str) -> str:
+    """Synchronous preparation and recognition boundary; caller owns the lock."""
 
     tmp_dir = settings.whisper_tmp_dir
     if not tmp_dir.exists():
@@ -53,7 +70,7 @@ async def transcribe_upload(
     with tempfile.TemporaryDirectory() as tmpdir:
         # Client-supplied names may contain absolute paths or parent components.
         input_path = Path(tmpdir) / "upload.audio"
-        input_path.write_bytes(await file.read())
+        input_path.write_bytes(audio)
 
         whisper_input_path = tmp_dir / f"whisper_input_{session_id}.wav"
         _prepare_audio(input_path, whisper_input_path, Path(tmpdir), settings)

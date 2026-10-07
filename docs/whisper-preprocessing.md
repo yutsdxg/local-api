@@ -60,7 +60,7 @@ LOCAL_API_WHISPER_PREPROCESSING=vad LOCAL_API_WHISPER_NORMALIZE=false \
 
 `LOCAL_API_WHISPER_PREPROCESSING=legacy` に戻すと従来の処理になります。選択した処理に必要なモデルや実行ファイルがない場合はエラーになります。
 
-`LOCAL_API_WHISPER_ARGS` は最後に追加されます。同じ VAD オプションをここにも指定すると、上記専用設定より追加引数が優先されます。比較時は既定の `-ng -nt -np` を維持し、VAD は専用設定で調整してください。
+`LOCAL_API_WHISPER_ARGS` は最後に追加されます。同じ VAD オプションをここにも指定すると、上記専用設定より追加引数が優先されます。認識の既定はlarge-v3・Metal・greedy・履歴なし（`-np -t 4 -bs 1 -bo 1 -mc 0`）です。前処理を比較するときは認識設定を固定し、VADは専用設定で調整してください。[認識設定と切り戻し](asr-recognition.md#採用構成と切り戻し)を参照してください。
 
 ## モデル・実行ファイルの準備
 
